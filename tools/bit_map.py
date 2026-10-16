@@ -2,7 +2,7 @@
 Bit allocation map of an exllamav3 recipe: per layer, the bits of each tensor group, as a heatmap (PNG) and a
 Markdown table.
 
-    PYTHONPATH=pylibs python tools/bit_map.py --recipe calib/recipe_v3.yaml -o docs/bit_allocation
+    PYTHONPATH=pylibs python tools/bit_map.py --recipe calib/recipe_v3.yaml -o docs/bit_allocation [--theme light]
 """
 import argparse, re
 from collections import defaultdict
@@ -17,13 +17,16 @@ GROUPS = [
     ("GDN out / attn o", [r"linear_attn\.out_proj$", r"self_attn\.o_proj$"]),
     ("Indexer", [r"self_attn\.indexer\.index_qk_proj$"]),
 ]
-# ordinal blue ramp of the reference palette (light surface), five bands far enough apart to tell; the exact value
-# is printed in every cell
-BANDS = [(3.5, "#86b6ef", "<= 3.5"), (4, "#5598e7", "4"), (5, "#2a78d6", "5"), (6, "#1c5cab", "6"), (8, "#0d366b", "7-8")]
+# ordinal blue ramp of the reference palette, five bands far enough apart to tell, more bits further from the surface
+# (darker on light, brighter on dark); the exact value is printed in every cell.
+# theme: surface, ink, secondary ink, band colors, which bands take light text
+THEMES = {"dark": ("#1a1a19", "#f0efec", "#c3c2b7", ["#184f95", "#256abf", "#3987e5", "#6da7ec", "#9ec5f4"], 3),
+          "light": ("#fcfcfb", "#0b0b0b", "#52514e", ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#0d366b"], 1)}
+TOPS, LABELS = [3.5, 4, 5, 6, 8], ["<= 3.5", "4", "5", "6", "7-8"]
 
 
-def color(b):
-    return next(c for top, c, _ in BANDS if b <= top)
+def band(b):
+    return next(i for i, top in enumerate(TOPS) if b <= top)
 
 
 def load(path):
@@ -85,7 +88,8 @@ def main(args):
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
-    surface, ink, ink2 = "#fcfcfb", "#0b0b0b", "#52514e"
+    surface, ink, ink2, bands, light_text = THEMES[args.theme]
+    on_band = lambda i: "#ffffff" if (i < light_text if args.theme == "dark" else i >= light_text) else "#0b0b0b"
     fig_w, cell = 15.0, 15.0 / (len(layers) + 9)
     fig, ax = plt.subplots(figsize = (fig_w, cell * (len(GROUPS) + 4)), dpi = 160)
     fig.patch.set_facecolor(surface)
@@ -96,9 +100,8 @@ def main(args):
             b = grid[g].get(l)
             if b is None:
                 continue
-            ax.add_patch(Rectangle((xi + gap / 2, yi + gap / 2), 1 - gap, 1 - gap, facecolor = color(b), linewidth = 0))
-            ax.text(xi + 0.5, yi + 0.5, fmt(b), ha = "center", va = "center", fontsize = 6.5,
-                    color = "#ffffff" if b > 3.5 else ink)
+            ax.add_patch(Rectangle((xi + gap / 2, yi + gap / 2), 1 - gap, 1 - gap, facecolor = bands[band(b)], linewidth = 0))
+            ax.text(xi + 0.5, yi + 0.5, fmt(b), ha = "center", va = "center", fontsize = 6.5, color = on_band(band(b)))
     ax.set_xlim(0, len(layers))
     ax.set_ylim(len(GROUPS), 0)
     ax.set_xticks([i + 0.5 for i in range(len(layers))], [str(l) for l in layers], fontsize = 6.5, color = ink2)
@@ -111,7 +114,7 @@ def main(args):
                  f"head {head.get('head_bits', '?')} bits", fontsize = 10, color = ink, loc = "left", pad = 22)
     # legend: the bands
     x0 = 0
-    for _, c, label in BANDS:
+    for c, label in zip(bands, LABELS):
         ax.add_patch(Rectangle((x0, -0.9), 0.8, 0.55, facecolor = c, linewidth = 0, clip_on = False))
         ax.text(x0 + 1.0, -0.62, f"{label} bits", va = "center", fontsize = 7, color = ink2, clip_on = False)
         x0 += 4.6
@@ -124,4 +127,5 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--recipe", required = True)
     ap.add_argument("-o", "--output", required = True)
+    ap.add_argument("--theme", choices = THEMES, default = "dark")
     main(ap.parse_args())

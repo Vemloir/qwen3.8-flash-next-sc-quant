@@ -4,12 +4,14 @@ Charts for the model card from results/kld_by_source.json (written for the evalu
   kld_overall.png     mean KL divergence vs BF16, this quant and turboderp's 4.05 bpw, on the two independent traces
   kld_by_source.png   relative difference per source / language with 95% paired-bootstrap intervals
 
-    PYTHONPATH=pylibs python tools/readme_charts.py --results hf/dataset/results/kld_by_source.json -o hf/assets
+    PYTHONPATH=pylibs python tools/readme_charts.py --results hf/dataset/results/kld_by_source.json -o hf/assets [--theme light]
 """
 import argparse, json, os
 
-SURFACE, INK, INK2, MUTED, GRID, AXIS = "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
-OURS, REF = "#2a78d6", "#eb6834"          # categorical slots 1 and 2 of the reference palette
+# surface, ink, secondary ink, grid, axis, series 1 and 2 (categorical slots of the reference palette, stepped per mode)
+THEMES = {"dark": ("#1a1a19", "#f0efec", "#c3c2b7", "#2f2f2c", "#55544f", "#3987e5", "#d95926"),
+          "light": ("#fcfcfb", "#0b0b0b", "#52514e", "#e1e0d9", "#c3c2b7", "#2a78d6", "#eb6834")}
+SURFACE, INK, INK2, GRID, AXIS, OURS, REF = THEMES["dark"]
 
 NAMES = {
     "nemotron": {"tool_calling": "Agentic tool calling", "knowledge_agent": "Knowledge-base agent",
@@ -90,6 +92,8 @@ def by_source(res, out, plt):
 
 
 def main(args):
+    global SURFACE, INK, INK2, GRID, AXIS, OURS, REF
+    SURFACE, INK, INK2, GRID, AXIS, OURS, REF = THEMES[args.theme]
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -104,4 +108,5 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required = True)
     ap.add_argument("-o", "--output", required = True)
+    ap.add_argument("--theme", choices = THEMES, default = "dark")
     main(ap.parse_args())
