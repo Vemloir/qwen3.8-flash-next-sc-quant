@@ -88,8 +88,10 @@ allocation map are also in this branch (`recipe.yaml`, `bit_allocation.png`, `bi
 
 ## n-gram table
 
-`ngram_embedding.safetensors` (52 GB) is the per-layer n-gram embedding (PLE) table, quantized to 8 bits from BF16
-without calibration (exllamav3 `-ngb 8`); every result above was measured with it. It is a lookup table: TabbyAPI
+`ngram_embedding-00001-of-00002.safetensors` and `-00002-of-00002` (52 GB together) are the per-layer n-gram
+embedding (PLE) table, quantized to 8 bits from BF16 without calibration (exllamav3 `-ngb 8`); every result above
+was measured with it. It is split in two only because Hugging Face caps files at 50 GB: exllamav3 finds the table
+shards by tensor name across all files of the model, so nothing needs to be merged. The table is a lookup: TabbyAPI
 streams the rows it needs from disk by default (`ngram_ram: false`), so it does not have to fit in RAM. The 6-bit
 table from turboderp's 4.05 branch (39 GB) also works with this model if disk space matters, untested here.
 
