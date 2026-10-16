@@ -38,6 +38,9 @@ range requests from the source datasets, rendered with the model's chat template
 
 - `qb_nemotron_results.json`, `qb_multilingual_results.json` and plots: qbench against BF16 for this quant and
   turboderp's 4.05 bpw.
+- `per_token_kld.safetensors`: per-token KL divergence on every scored token of both independent traces
+  (`nemotron.sc_4.05`, `nemotron.turboderp_4.05`, `multilingual.sc_4.05`, `multilingual.turboderp_4.05`), in
+  trace order; the source of the histograms in the model card.
 - `kld_by_source.json`: mean KL divergence per source/language, relative difference and 95% paired-bootstrap
   intervals over rows.
 - `split_grid.json`: per layer, the routed experts' output error (relative to the BF16 experts, on held-out tokens)

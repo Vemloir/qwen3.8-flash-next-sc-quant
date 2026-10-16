@@ -43,6 +43,13 @@ turns; lower is closer to the full model. The reference is turboderp's
 Intervals come from a paired bootstrap over rows. Perplexity is unchanged within noise: 1.9309 against 1.9316 on the
 Nemotron trace (BF16 1.9285), 2.3452 against 2.3443 on the multilingual one (BF16 2.3420).
 
+![Distribution of per-token KL divergence for both quants on both traces](assets/kld_hist.png)
+
+The same comparison token by token: the bulk of the distribution is shifted slightly left and the tail of large
+errors (right of 1e-2) is thinner. Medians: 8.6e-4 against 1.07e-3 (Nemotron), 9.3e-4 against 1.16e-3
+(multilingual). Unlike turboderp's histograms, there is no noise-floor curve: it needs a separate BF16 run with
+injected noise.
+
 ![Relative difference in KL divergence per source and per language, with 95% intervals](assets/kld_by_source.png)
 
 <details>

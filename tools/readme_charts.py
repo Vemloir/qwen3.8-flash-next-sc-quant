@@ -3,8 +3,10 @@ Charts for the model card from results/kld_by_source.json (written for the evalu
 
   kld_overall.png     mean KL divergence vs BF16, this quant and turboderp's 4.05 bpw, on the two independent traces
   kld_by_source.png   relative difference per source / language with 95% paired-bootstrap intervals
+  kld_hist.png        distribution of per-token KL divergence (from results/per_token_kld.safetensors), log x axis
 
-    PYTHONPATH=pylibs python tools/readme_charts.py --results hf/dataset/results/kld_by_source.json -o hf/assets [--theme light]
+    PYTHONPATH=pylibs python tools/readme_charts.py --results hf/dataset/results/kld_by_source.json \
+        --per_token hf/dataset/results/per_token_kld.safetensors -o hf/assets [--theme light]
 """
 import argparse, json, os
 
@@ -91,6 +93,53 @@ def by_source(res, out, plt):
     fig.savefig(os.path.join(out, "kld_by_source.png"), facecolor = SURFACE)
 
 
+def hist(per_token, res, out, plt):
+    """
+    Per-token KLD histograms, one panel per trace: 120 bins uniform on a log axis over the p1-p99 range of both quants
+    (exact zeros and the lowest 1% fall outside), lightly smoothed, medians marked
+    """
+    import numpy as np
+    from safetensors.numpy import load_file
+    kl = load_file(per_token)
+    groups = ["nemotron", "multilingual"]
+    fig, axes = plt.subplots(1, 2, figsize = (10.5, 4.0), dpi = 170, sharey = False)
+    fig.patch.set_facecolor(SURFACE)
+    series = (("sc_4.05", OURS, "SC 4.05 bpw (this quant)"), ("turboderp_4.05", REF, "turboderp 4.05 bpw"))
+    for ax, g in zip(axes, groups):
+        style(ax)
+        ax.spines["left"].set_visible(False)
+        data = {k: kl[f"{g}.{k}"].astype(np.float64) for k, _, _ in series}
+        both = np.concatenate([d[d > 0] for d in data.values()])
+        lo, hi = np.percentile(both, [1, 99])
+        edges = np.logspace(np.log10(lo), np.log10(hi), 121)
+        mid = np.sqrt(edges[:-1] * edges[1:])
+        top = 0
+        for k, c, lab in series:
+            h, _ = np.histogram(data[k], bins = edges)
+            h = np.convolve(h, np.ones(3) / 3, mode = "same")
+            top = max(top, h.max())
+            ax.plot(mid, h, color = c, linewidth = 2, label = lab, solid_capstyle = "round")
+        for i, (k, c, _) in enumerate(series):
+            med = np.median(data[k])
+            ax.axvline(med, color = c, linewidth = 1, linestyle = (0, (3, 3)))
+            ax.text(med * (0.85 if i == 0 else 1.18), top * 1.06, f"median {med:.2e}".replace("e-0", "e-"),
+                    ha = "right" if i == 0 else "left", fontsize = 7, color = INK2)
+        ax.set_xscale("log")
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(0, top * 1.14)
+        ax.set_yticks([])
+        ax.xaxis.grid(True, color = GRID, linewidth = 0.6)
+        ax.set_axisbelow(True)
+        ax.set_xlabel("per-token KL divergence from BF16 (log scale)", fontsize = 8, color = INK2)
+        a = res[g]["all"]
+        ax.set_title(f"{TITLES[g]}  ·  {a['scored_tokens']:,} tokens", fontsize = 9.5, color = INK, loc = "left")
+    axes[0].legend(frameon = False, fontsize = 8, labelcolor = INK2, loc = "upper left")
+    fig.suptitle("Distribution of per-token error  ·  further left = closer to BF16  ·  dashed: medians",
+                 fontsize = 10, color = INK, x = 0.01, ha = "left")
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "kld_hist.png"), facecolor = SURFACE)
+
+
 def main(args):
     global SURFACE, INK, INK2, GRID, AXIS, OURS, REF
     SURFACE, INK, INK2, GRID, AXIS, OURS, REF = THEMES[args.theme]
@@ -101,12 +150,15 @@ def main(args):
     os.makedirs(args.output, exist_ok = True)
     overall(res, args.output, plt)
     by_source(res, args.output, plt)
+    if args.per_token:
+        hist(args.per_token, res, args.output, plt)
     print(" -- charts in", args.output)
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required = True)
+    ap.add_argument("--per_token", help = "per_token_kld.safetensors, for kld_hist.png")
     ap.add_argument("-o", "--output", required = True)
     ap.add_argument("--theme", choices = THEMES, default = "dark")
     main(ap.parse_args())
