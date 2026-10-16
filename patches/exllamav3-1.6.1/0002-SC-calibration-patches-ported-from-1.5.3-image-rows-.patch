@@ -1,0 +1,803 @@
+From 5fbfc81a3539f0f59ee5da0152074ad45c9f80d9 Mon Sep 17 00:00:00 2001
+From: Vemloir <Vemloir@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 23:26:07 +0500
+Subject: [PATCH 2/6] SC calibration patches ported from 1.5.3: image rows in
+ calibration, qbench cached_key/score_spans/CPU states
+
+Calibration images embedded through the vision tower, low-disk conversion and chunked calibration
+in convert_model, qbench reference from cache with scored spans and hidden states kept on the CPU
+between modules, SC measure/optimize helpers.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B1AxxScwxpracGBcrTgLYr
+---
+ eval/qbench.py                           |   8 +-
+ eval/qbench/data.py                      |  16 +-
+ eval/qbench/engines.py                   |   8 +-
+ eval/qbench/measure.py                   |  71 +++++---
+ exllamav3/conversion/calibration_data.py |  21 +++
+ exllamav3/conversion/compile.py          |  15 +-
+ exllamav3/conversion/convert_model.py    | 207 +++++++++++++++++++++--
+ exllamav3/loader/safetensors_alt.py      |   7 +
+ sc_measure.py                            |  88 +++++++++-
+ sc_optimize.py                           |   2 +-
+ 10 files changed, 394 insertions(+), 49 deletions(-)
+
+diff --git a/eval/qbench.py b/eval/qbench.py
+index cbd8248..0543bfe 100644
+--- a/eval/qbench.py
++++ b/eval/qbench.py
+@@ -100,8 +100,12 @@ def main(args):
+             "noise": BF16_ROUNDING_EPS if noise else 0,
+         })
+ 
+-    ref_key = model_key(ref)
++    # cached_key: reuse the cached logits of a reference whose source is gone (e.g. a deleted
++    # checkpoint), naming the cache key directly; the reference model is then never loaded
++    ref_key = ref.get("cached_key") or model_key(ref)
+     ref_store = cache.logits_dir(f"{data_key}_{ref_key}")
++    if ref.get("cached_key"):
++        assert os.path.exists(os.path.join(ref_store, "meta.json")), f"No cached reference logits in {ref_store}"
+     ref_meta = os.path.join(ref_store, "meta.json")
+ 
+     all_results = []
+@@ -129,7 +133,7 @@ def main(args):
+     all_results.append({"label": ref["label"], "group": ref["group"], **ref_results})
+ 
+     # ------ Noise floor: reference engine + bf16-rounding noise per layer, vs cached logits
+-    if project.get("noise_floor", True) and ref["engine"] != "llamacpp":
++    if project.get("noise_floor", True) and ref["engine"] != "llamacpp" and not ref.get("cached_key"):
+         floor_results_key = f"{data_key}_{ref_key}_{model_key(ref, noise = True)}_m{METRICS_VERSION}"
+         floor_results = cache.load_results(floor_results_key)
+         if floor_results is None:
+diff --git a/eval/qbench/data.py b/eval/qbench/data.py
+index cc66fdc..d1d577c 100644
+--- a/eval/qbench/data.py
++++ b/eval/qbench/data.py
+@@ -8,7 +8,6 @@ import os
+ import shutil
+ 
+ import torch
+-from datasets import load_dataset
+ from safetensors import safe_open
+ from safetensors.torch import save_file
+ 
+@@ -178,7 +177,7 @@ class QCache:
+ def get_test_rows(project: dict, cache: QCache):
+     """
+     Test rows as (ids [rows, max_len] right-padded, ranges, vocab_size_or_None): per row,
+-    metrics run over logits positions [a, b). From `test_trace` (a qbench_prompts.py trace:
++    metrics run over logits positions [a, b), or over a list of such spans. From `test_trace` (a qbench_prompts.py trace:
+     variable-length (context, response) pairs, scored only on the sampled response positions -
+     padding beyond b is causally inert), or from the classic test_data/tokenizer spec (uniform
+     rows, scored from the chat-context prefix onward).
+@@ -195,9 +194,14 @@ def get_test_rows(project: dict, cache: QCache):
+             seq = r["input_ids"] + r["response_ids"]
+             ids[i, :len(seq)] = torch.tensor(seq, dtype = torch.long)
+             p = len(r["input_ids"])
+-            # logits at [p-1, p+R) predict exactly the R sampled tokens (plus the final
+-            # next-token distribution, mirroring the classic mode's inclusive end)
+-            ranges.append((p - 1, len(seq)))
++            if r.get("score_spans"):
++                # several model-generated spans [s, e) inside one row (e.g. every assistant turn
++                # of an agent session): logits at [s-1, e-1) predict exactly those tokens
++                ranges.append([(s - 1, e - 1) for s, e in r["score_spans"]])
++            else:
++                # logits at [p-1, p+R) predict exactly the R sampled tokens (plus the final
++                # next-token distribution, mirroring the classic mode's inclusive end)
++                ranges.append((p - 1, len(seq)))
+         return ids, ranges, trace.get("vocab_size")
+ 
+     ids, prefix_len = get_test_ids(project, cache)
+@@ -220,6 +224,8 @@ def get_test_ids(project: dict, cache: QCache):
+         return ids, prefix_len
+ 
+     from exllamav3 import Tokenizer, Config
++    # only the corpus test sets need the datasets package, not a test_trace
++    from datasets import load_dataset
+     spec = DATASETS[td["source"].lower()]
+     print(f" -- Loading text dataset: {spec['path']}" + (f"/{spec['name']}" if spec["name"] else ""))
+     if spec["name"] is None:
+diff --git a/eval/qbench/engines.py b/eval/qbench/engines.py
+index a945890..2366b02 100644
+--- a/eval/qbench/engines.py
++++ b/eval/qbench/engines.py
+@@ -31,7 +31,9 @@ GGUF_ROUTER_KEYS = ("ffn_gate_inp.weight",)
+ 
+ 
+ def apply_mult_noise(x: torch.Tensor, eps: float, gen: torch.Generator) -> torch.Tensor:
+-    n = torch.randn(x.shape, generator = gen, device = x.device, dtype = torch.float)
++    # modules that run on the CPU (prefer_cpu, e.g. a host-resident embedding) hand back CPU tensors;
++    # draw on the generator's device so the noise sequence stays the same either way
++    n = torch.randn(x.shape, generator = gen, device = gen.device, dtype = torch.float).to(x.device)
+     return (x.float() * (1.0 + eps * n)).to(x.dtype)
+ 
+ 
+@@ -101,7 +103,9 @@ class Exl3Backend:
+                         callback(r, x)
+                         states[r] = None
+                     else:
+-                        states[r] = x
++                        # between modules every row's state waits in system RAM, so the device
++                        # holds one row at a time (long or many rows would not fit otherwise)
++                        states[r] = x.cpu() if torch.is_tensor(x) else x
+                     del x
+ 
+                 module.unload()
+diff --git a/eval/qbench/measure.py b/eval/qbench/measure.py
+index 72ed439..19e4927 100644
+--- a/eval/qbench/measure.py
++++ b/eval/qbench/measure.py
+@@ -26,6 +26,9 @@ CONF_BUCKETS = [(0.00, 0.25), (0.25, 0.50), (0.50, 0.75), (0.75, 0.95), (0.95, 1
+ METRICS_VERSION = 5
+ 
+ 
++POS_CHUNK = 1024
++
++
+ class DiffStats:
+     """Accumulates ppl over the model's own logits, and (if a reference store is given) KLD vs
+     the reference, per-token, bucketed by the reference's top-token probability."""
+@@ -42,27 +45,46 @@ class DiffStats:
+         self.conf_toks = []
+ 
+     def __call__(self, r: int, logits: torch.Tensor):
+-        a, b = self.ranges[r]
+-        logits = logits[:, a:b, :].float()
+-        logits.clamp_(min = -200.0)
+-
+-        # ppl on own logits. Non-finite positions (a model NaN-ing on some input, e.g. fp16
+-        # overflow in a backend) are excluded and counted rather than poisoning the aggregate
+-        targets = self.ids[r, a + 1:b].view(1, -1).to(logits.device)
+-        lp = compute_target_log_probs(logits[:, :-1, :], targets, min(self.vocab_size, logits.shape[-1]))
+-        finite = torch.isfinite(lp)
+-        self.logprob_sum += lp[finite].sum().item()
+-        self.logprob_count += finite.sum().item()
+-        self.total_count += targets.numel()
+-
+-        # kld vs reference
++        # Positions are scored in chunks: a full row of float32 logits (rows of several thousand
++        # tokens x a 248k vocabulary) plus its reference would not fit a 16 GB device at once.
++        # A row may score several spans; its reference file holds their logits back to back
++        ref_full = None
+         if self.ref_store:
+-            ref = load_tensor(os.path.join(self.ref_store, f"row_{r:06d}.safetensors"), "logits")
+-            ref = ref.to(logits.device).float()
+-            vs = min(self.vocab_size, logits.shape[-1], ref.shape[-1])
+-            kl = compute_kl_div(logits.squeeze(0), ref.squeeze(0), vs)
+-            self.kl_toks.append(kl.flatten().float().cpu())
+-            del ref
++            ref_full = load_tensor(os.path.join(self.ref_store, f"row_{r:06d}.safetensors"), "logits")
++        kls = []
++        off = 0
++        # a single (context, response) range ends one past the last token (the final position
++        # has no target); explicit spans [s-1, e-1) have a target at every position
++        tail = 1 if isinstance(self.ranges[r][0], int) else 0
++        for a, b in spans_of(self.ranges[r]):
++            for c0 in range(a, b, POS_CHUNK):
++                c1 = min(c0 + POS_CHUNK, b)
++                lg = logits[:, c0:c1, :].float()
++                lg.clamp_(min = -200.0)
++
++                # ppl on own logits: position p predicts token p + 1, so the last scored position of
++                # the row has no target. Non-finite positions (a model NaN-ing on some input, e.g.
++                # fp16 overflow in a backend) are excluded and counted rather than poisoning the
++                # aggregate
++                t1 = min(c1, b - tail)
++                if t1 > c0:
++                    targets = self.ids[r, c0 + 1:t1 + 1].view(1, -1).to(lg.device)
++                    lp = compute_target_log_probs(lg[:, :t1 - c0, :], targets, min(self.vocab_size, lg.shape[-1]))
++                    finite = torch.isfinite(lp)
++                    self.logprob_sum += lp[finite].sum().item()
++                    self.logprob_count += finite.sum().item()
++                    self.total_count += targets.numel()
++
++                # kld vs reference
++                if ref_full is not None:
++                    ref = ref_full[:, off + c0 - a:off + c1 - a, :].to(lg.device).float()
++                    vs = min(self.vocab_size, lg.shape[-1], ref.shape[-1])
++                    kls.append(compute_kl_div(lg.squeeze(0), ref.squeeze(0), vs).flatten().float().cpu())
++                    del ref
++                del lg
++            off += b - a
++        if kls:
++            self.kl_toks.append(torch.cat(kls))
+ 
+     def load_conf(self):
+         conf = load_tensor(os.path.join(self.ref_store, "conf.safetensors"), "conf")
+@@ -111,8 +133,13 @@ class DiffStats:
+         return res
+ 
+ 
+-def save_reference_row(store_dir: str, r: int, logits: torch.Tensor, rng: tuple, conf_rows: list):
+-    logits = logits[:, rng[0]:rng[1], :].float()
++def spans_of(rng) -> list:
++    """A row's scored logits positions as a list of (a, b) spans (one span or several)."""
++    return [tuple(rng)] if isinstance(rng[0], int) else [tuple(x) for x in rng]
++
++
++def save_reference_row(store_dir: str, r: int, logits: torch.Tensor, rng, conf_rows: list):
++    logits = torch.cat([logits[:, a:b, :] for a, b in spans_of(rng)], dim = 1).float()
+     logits.clamp_(min = -200.0)
+     # reference top-token probability per position, for the confidence buckets
+     l2 = logits.squeeze(0)
+diff --git a/exllamav3/conversion/calibration_data.py b/exllamav3/conversion/calibration_data.py
+index 5f60a73..5a0d2c0 100644
+--- a/exllamav3/conversion/calibration_data.py
++++ b/exllamav3/conversion/calibration_data.py
+@@ -128,3 +128,24 @@ def get_file_calibration(args, tokenizer):
+             raise ValueError(f"Calibration file {args['cal_data']}: row {i} is empty")
+         out.append(packed[i : i + 1, :n].to(torch.long).contiguous())
+     return out
++
++
++def get_file_calibration_images(args):
++    """
++    Images of a packed calibration file, as a list of (row, start, length, image_bytes), or [] when
++    the file has none. Rows with images (written by trace_images.py) carry the model's image token
++    at the image's embedding positions: "mm_row", "mm_start" and "mm_len" give the row, the first
++    position and the number of embedding positions of each image, and "mm_image_<k>" holds the
++    k-th image file (PNG/JPEG bytes as uint8), so the calibration file is self-contained.
++    """
++    from safetensors.torch import load_file
++    data = load_file(args["cal_data"])
++    if "mm_row" not in data:
++        return []
++    rows = data["mm_row"].tolist()
++    keep = args["cal_rows"]
++    out = []
++    for k, (r, s, n) in enumerate(zip(rows, data["mm_start"].tolist(), data["mm_len"].tolist())):
++        if r < keep:
++            out.append((r, s, n, data[f"mm_image_{k}"].numpy().tobytes()))
++    return out
+diff --git a/exllamav3/conversion/compile.py b/exllamav3/conversion/compile.py
+index d60ec14..33a2d79 100644
+--- a/exllamav3/conversion/compile.py
++++ b/exllamav3/conversion/compile.py
+@@ -106,7 +106,15 @@ def compile_model(args, model, config, tokenizer, mtp_model = None, vision_model
+         total_size += size
+         out_map[-1].append(key)
+ 
+-    # Write model tensors
++    # Write model tensors. With --low_disk, each qtensors file is deleted once every tensor in it has
++    # been written to a finished output shard, so the quantized model is never on disk twice
++    consume = args.get("low_disk") and not args.get("model_stc")
++    if consume:
++        print(" -- Low-disk compile: quantized tensors are removed as they are written (not resumable)")
++        pending_files = {}
++        for k, fn in qtensors_stc.tensor_file_map.items():
++            if k != "__metadata__":
++                pending_files.setdefault(fn, set()).add(k)
+     map_dict = {}
+     num_files = len(out_map)
+     for file_idx, modules in enumerate(out_map):
+@@ -130,6 +138,11 @@ def compile_model(args, model, config, tokenizer, mtp_model = None, vision_model
+         save_file(file_dict, os.path.join(out_dir, filename))
+         del file_dict
+         free_mem()
++        if consume:
++            qtensors_stc.close()
++            for fn in [fn for fn, keys in pending_files.items() if keys <= map_dict.keys()]:
++                os.remove(fn if os.path.isabs(fn) else os.path.join(qtensors_dir, fn))
++                del pending_files[fn]
+ 
+     # Every tensor the quantizer produced must have reached the shards: a module whose compile
+     # collection misses its own outputs (e.g. a submodule-owned tensor outside the parent's key
+diff --git a/exllamav3/conversion/convert_model.py b/exllamav3/conversion/convert_model.py
+index 2fa4ccf..bc66a09 100644
+--- a/exllamav3/conversion/convert_model.py
++++ b/exllamav3/conversion/convert_model.py
+@@ -13,7 +13,7 @@ from ..util.memory import free_mem, malloc_trim
+ from ..util import Timer, human_time
+ from ..util.tensor import save_tensor_image
+ from ..util.measures import cosine_error, sqnr
+-from .calibration_data import get_default_calibration, get_file_calibration
++from .calibration_data import get_default_calibration, get_file_calibration, get_file_calibration_images
+ from .compile import compile_model, dsize
+ from .ngram import quantize_embedding
+ from .allocation import create_q_strategy, create_q_strategy_from_recipe, print_strategy, HALF_RATES
+@@ -103,6 +103,8 @@ parser.add_argument("--max_module", type = int, help = "End quantization after t
+ group = parser.add_mutually_exclusive_group()
+ group.add_argument("--out_scales", type = str, default = "auto", choices = ["auto", "always", "never", "yaqa"], help = "Output channel scales: always, never, auto (default): always, except for gate and up projections of gated MLPs whose calibration statistics predict a lower error without, or yaqa: per-channel scales that account for how much each output channel matters, from the diagonal of the output-side Hessians in --hessians (tensors without one are treated as in auto)")
+ 
++parser.add_argument("-cch", "--cal_chunk", type = int, default = 0, help = "Forward calibration rows longer than this many tokens through each module in chunks, carrying attention K/V and recurrent state across chunks (for rows whose activations do not fit on the device), default: off")
++parser.add_argument("-ld", "--low_disk", action = "store_true", help = "Minimize disk use: keep a single checkpoint copy (a crash while it is written loses resume), drop the checkpoint before compiling and delete quantized tensors as they are written into the output shards (compile cannot be resumed)")
+ parser.add_argument("--override_anyway", action = "store_true", help = "Allow resuming even when overriding settings that will break the existing job.")
+ 
+ num_ref_states = 5
+@@ -150,18 +152,37 @@ def load_tensor(filename, args):
+ 
+ def save_tensor(tensor, filename: str, args):
+     path = os.path.join(args["work_dir"], filename)
++    drop = bool(args.get("low_disk"))
+     if isinstance(tensor, dict):
+         save_file({
+             k: v for k, v in tensor.items()
+-        }, path)
++        }, path, drop_cache = drop)
+     elif isinstance(tensor, list):
+         save_file({
+             f"tensor.{i}": t for i, t in enumerate(tensor)
+-        }, path)
++        }, path, drop_cache = drop)
+     else:
+         save_file({
+             f"tensor": tensor
+-        }, path)
++        }, path, drop_cache = drop)
++    if drop:
++        drop_file_cache(path)
++
++
++def drop_file_cache(path: str):
++    """
++    Flush a just-written file and evict it from the page cache. A checkpoint of the calibration state
++    is tens of GB: left as dirty page cache it counts against a memory-limited cgroup until writeback
++    catches up, on top of the state still held in RAM, and the next module load can push the job
++    over its limit.
++    """
++    fd = os.open(path, os.O_RDONLY)
++    try:
++        os.fsync(fd)
++        if hasattr(os, "posix_fadvise"):
++            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
++    finally:
++        os.close(fd)
+ 
+ 
+ def prepare_env(args):
+@@ -275,6 +296,8 @@ def prepare(args) -> (dict, dict, bool, str):
+         ("cal_rows", False, 250),
+         ("cal_cols", False, 2048),
+         ("checkpoint_interval", True, None),
++        ("low_disk", True, False),
++        ("cal_chunk", True, 0),
+         ("last_checkpoint_index", True, -1),
+         ("devices", True, None),
+         ("device_ratios", True, None),
+@@ -424,6 +447,33 @@ def prepare_state(args, job_state, config, model, tokenizer):
+     return state, original_input_ids
+ 
+ 
++@torch.inference_mode()
++def embed_calibration_images(config, tokenizer, images, input_ids, device):
++    """
++    Embed the images of calibration rows with the unquantized vision tower and write their
++    multimodal embedding ids into the rows' input ids (in place), as the generator does for a
++    prompt with images. Returns {row: [MMEmbedding]} for the embedding module's indexed_embeddings.
++    """
++    import io
++    from PIL import Image
++    vision = Model.from_config(config, component = "vision")
++    vision.load(device = torch.device("cuda", device))
++    image_id = config.image_token_id
++    out = {}
++    for r, start, n, data in images:
++        mme = vision.get_image_embeddings(tokenizer, Image.open(io.BytesIO(data)).convert("RGB"))
++        ids = input_ids[r]
++        span = ids[0, start : start + n]
++        assert mme.mm_length == n, f"calibration row {r}: image at {start} has {n} positions, the vision tower gives {mme.mm_length}"
++        assert bool((span == image_id).all()), f"calibration row {r}: positions {start}..{start + n} are not image tokens"
++        span.copy_(torch.arange(mme.first_index, mme.first_index + n, dtype = ids.dtype))
++        out.setdefault(r, []).append(mme)
++    vision.unload()
++    free_mem()
++    print(f" -- Embedded {len(images)} calibration images in {len(out)} rows")
++    return out
++
++
+ def get_state_error(x, ref):
+      x = x.view(-1, x.shape[-1]).float()
+      ref = ref.view(-1, ref.shape[-1]).float()
+@@ -447,6 +497,80 @@ def unpack_sym(t, n):
+     return out
+ 
+ 
++class RowChunker:
++    """
++    Forward pass of one calibration row through one module in chunks, for rows too long to hold the
++    module's activations on the device at once. A cache attached to the model carries attention K/V
++    (and sparse-attention indexer keys) across chunks and a recurrent-state slot carries linear-attention
++    and PLE state, exactly as in a generator prefill split into chunks. Inputs and outputs stay in system
++    RAM. Agrees with the full-row forward to ~1e-3 relative (fp16 kernel accumulation order).
++    """
++
++    def __init__(self, model, chunk: int, max_len: int):
++        from ..cache import Cache
++        from ..constants import PAGE_SIZE
++        self.model = model
++        self.chunk = chunk
++        self.page = PAGE_SIZE
++        self.cache = Cache(model, max_num_tokens = self._cap(max_len), max_batch_size = 1)
++        # cache tensors are allocated as each module loads, not by a whole-model load
++        self.cache.initialized = True
++
++    def _cap(self, n):
++        return (n + self.page - 1) // self.page * self.page
++
++    def is_long(self, x):
++        # hidden states are (1, L, D) or, with hyper-connections, (1, L, streams, D)
++        return torch.is_tensor(x) and x.dim() >= 3 and x.shape[1] > self.chunk
++
++    @torch.inference_mode()
++    def forward(self, module, x, params, keep_output: bool = True, chunk: int | None = None):
++        """
++        Returns the module output for the whole row in system RAM (written chunk by chunk into one
++        preallocated tensor, so a long row is held at most twice: input and output), or None with
++        keep_output = False (capture passes only need the side effects). Non-finite values are
++        checked per chunk on the device; the result is left in self.last_finite.
++        """
++        from ..cache.recurrent_util import advance_recurrent_states
++        L = x.shape[1]
++        ids = params["input_ids"]
++        assert ids.shape[-1] == L, "input_ids do not match the row length"
++        cap = self._cap(L)
++        rstate = self.cache.get_new_state() if self.cache.recurrent_layers else None
++        out = None
++        self.last_finite = True
++        step = chunk or self.chunk
++        try:
++            for a in range(0, L, step):
++                b = min(a + step, L)
++                p = dict(params)
++                p.update({
++                    "attn_mode": "flash_attn",
++                    "cache": self.cache,
++                    "batch_shape": (1, cap),
++                    "past_len": a,
++                    "input_ids": ids[:, a:b],
++                })
++                if rstate is not None:
++                    p["recurrent_states"] = [rstate]
++                self.model.prepare_inputs(ids[:, a:b], p)
++                y = module.forward(module.prepare_for_device(x[:, a:b], p), p)
++                advance_recurrent_states(ids[:, a:b], p, self.model)
++                if not torch.isfinite(y).all().item():
++                    self.last_finite = False
++                if keep_output:
++                    if out is None:
++                        out = torch.empty((y.shape[0], L, *y.shape[2:]), dtype = y.dtype)
++                    out[:, a:b].copy_(y)
++                del y
++                if "quant_preserve" in p:
++                    params["quant_preserve"] = p["quant_preserve"]
++        finally:
++            if rstate is not None:
++                self.cache.release_state(rstate)
++        return out
++
++
+ def get_H_data(args, linear, capture_H, state):
+     """
+     Hessians for one Linear, as (H_data, H_out). H_data: captured online (calibrated conversion), or built from the
+@@ -1232,6 +1356,7 @@ def main(args, job_state):
+             "Current implementation of this architecture does not support resuming an interrupted quant job."
+ 
+     # Get initial state or resume state
++    mm_rows = {}
+     if use_reference_state:
+         state, original_input_ids = prepare_state(args, job_state, config, model, tokenizer)
+         if original_input_ids is None:
+@@ -1241,6 +1366,12 @@ def main(args, job_state):
+                 [{} for _ in range(len(state))]
+             )
+         quant_preserves = [{} for _ in range(len(state))]
++        # Rows with images get their multimodal embeddings on a fresh start; only the embedding
++        # module reads them, and a resumed job finds the embedding ids already in its checkpoint
++        if job_state["next_module_idx"] == 0 and args.get("cal_data"):
++            images = get_file_calibration_images(args)
++            if images:
++                mm_rows = embed_calibration_images(config, tokenizer, images, original_input_ids, devices[0])
+         # Rows whose hidden state (or unquantized reference) has gone non-finite are excluded
+         # from all further capture, state advancement and error measurement. Persisted through
+         # checkpoints; the job aborts if more than 10% of all rows break
+@@ -1255,6 +1386,8 @@ def main(args, job_state):
+     def get_preserve(si, params_):
+         params_.update(quant_preserves[si])
+         params_["quant_preserve"] = quant_preserves[si]
++        if si in mm_rows:
++            params_["indexed_embeddings"] = mm_rows[si]
+ 
+     def put_preserve(si, params_):
+         quant_preserves[si] = params_["quant_preserve"]
+@@ -1288,6 +1421,32 @@ def main(args, job_state):
+     )
+     replica_models = [Model.from_config(config) for _ in devices[1:]] if parallel_calib else []
+ 
++    # Rows longer than --cal_chunk go through each module in chunks (see RowChunker). Long rows are
++    # never used as error-measurement references (their head logits alone would not fit in RAM)
++    chunker = None
++    if state is not None and args.get("cal_chunk"):
++        max_len = max(t.shape[-1] for t in original_input_ids if torch.is_tensor(t))
++        if max_len > args["cal_chunk"]:
++            assert not parallel_calib, "--cal_chunk is only implemented for single-device calibration"
++            chunker = RowChunker(model, args["cal_chunk"], max_len)
++            print(f" -- Calibration rows over {args['cal_chunk']} tokens are forwarded in chunks (longest: {max_len})")
++
++    def row_is_long(x):
++        return chunker is not None and chunker.is_long(x)
++
++    # The output head's capture forward produces full-vocabulary logits (rows x vocab), which for a
++    # long row would not fit anywhere; its capture only needs the input, so rows over HEAD_CHUNK
++    # tokens go through it in small chunks without keeping the output
++    HEAD_CHUNK = 2048
++
++    def capture_chunk(module_idx, x):
++        """Chunk size for this row's capture forward, or None for the plain full-row forward."""
++        if chunker is None or not torch.is_tensor(x) or x.dim() < 3:
++            return None
++        if module_idx == len(model.modules) - 1 and x.shape[1] > HEAD_CHUNK:
++            return HEAD_CHUNK
++        return chunker.chunk if chunker.is_long(x) else None
++
+     # Iterate over modules
+     for idx, module in enumerate(model.modules):
+ 
+@@ -1390,10 +1549,15 @@ def main(args, job_state):
+                                 if slicing:
+                                      params["q_mlp_slice"] = current_slice
+                                 get_preserve(i, params)
+-                                rs = module.prepare_for_device(state[i], params)
+-                                rs = module.forward(rs, params)
++                                cchunk = capture_chunk(idx, state[i])
++                                if cchunk:
++                                    # chunked rows are never reference rows, so only the capture is needed
++                                    rs = chunker.forward(module, state[i], params, keep_output = False, chunk = cchunk)
++                                else:
++                                    rs = module.prepare_for_device(state[i], params)
++                                    rs = module.forward(rs, params)
+                                 put_preserve(i, params)
+-                                if i < num_ref_states:
++                                if i < num_ref_states and not cchunk:
+                                     if model.calibration_all_experts:
+                                         # Do not activate all experts for reference state, for error measurement
+                                         params = {
+@@ -1543,11 +1707,18 @@ def main(args, job_state):
+                             "attn_mode": "flash_attn_nc",
+                             "input_ids": original_input_ids[i],
+                         }
+-                        state[i] = module.prepare_for_device(state[i], params)
+-                        if i < num_ref_states or idx < len(model.modules) - 1:
++                        long_row = row_is_long(state[i])
++                        if not long_row:
++                            state[i] = module.prepare_for_device(state[i], params)
++                        if (i < num_ref_states and not long_row) or idx < len(model.modules) - 1:
+                             get_preserve(i, params)
+-                            rs = module.forward(state[i], params)
+-                            if not torch.isfinite(rs).all().item():
++                            if long_row:
++                                rs = chunker.forward(module, state[i], params)
++                                finite = chunker.last_finite
++                            else:
++                                rs = module.forward(state[i], params)
++                                finite = torch.isfinite(rs).all().item()
++                            if not finite:
+                                 bad_rows.add(i)
+                                 print(f" !! Non-finite hidden state in calibration row {i}, excluding row")
+                             state[i] = rs.cpu()
+@@ -1588,6 +1759,11 @@ def main(args, job_state):
+             ckpt_dir = os.path.join(args["work_dir"], "ckpt")
+             ckpt_dir_old = os.path.join(args["work_dir"], "ckpt_old")
+             ckpt_dir_new = os.path.join(args["work_dir"], "ckpt_new")
++            if args.get("low_disk"):
++                # one copy on disk: the previous checkpoint goes before the new one is written
++                for d in (ckpt_dir_old, ckpt_dir):
++                    if os.path.exists(d):
++                        shutil.rmtree(d)
+             os.makedirs(ckpt_dir_new, exist_ok = True)
+             job_state["bad_rows"] = sorted(bad_rows)
+             save_dict("ckpt_new/job.json", job_state, args)
+@@ -1595,7 +1771,8 @@ def main(args, job_state):
+             save_tensor(original_input_ids, "ckpt_new/original_input_ids.safetensors", args)
+             if os.path.exists(ckpt_dir_old):
+                 shutil.rmtree(ckpt_dir_old)
+-            os.rename(ckpt_dir, ckpt_dir_old)
++            if os.path.exists(ckpt_dir):
++                os.rename(ckpt_dir, ckpt_dir_old)
+             os.rename(ckpt_dir_new, ckpt_dir)
+             last_checkpoint_time = time.time()
+ 
+@@ -1679,6 +1856,12 @@ def main(args, job_state):
+         quantize_side_model(vision_model, "vision model")
+ 
+     # Compile model
++    if args.get("low_disk"):
++        # quantization is complete, the calibration-state checkpoint is no longer needed
++        for d in ("ckpt", "ckpt_old", "ckpt_new"):
++            d = os.path.join(args["work_dir"], d)
++            if os.path.exists(d):
++                shutil.rmtree(d)
+     compile_model(args, model, config, tokenizer, mtp_model, vision_model)
+ 
+     # All done
+diff --git a/exllamav3/loader/safetensors_alt.py b/exllamav3/loader/safetensors_alt.py
+index 388e9d3..84f8f33 100644
+--- a/exllamav3/loader/safetensors_alt.py
++++ b/exllamav3/loader/safetensors_alt.py
+@@ -223,11 +223,14 @@ def save_file(
+     tensors: dict,
+     filename: str,
+     metadata: dict | None = None,
++    drop_cache: bool = False,
+ ) -> None:
+     """
+     Replacement for safetensors.torch.save_file:
+       - streams tensor bytes directly to disk (no intermediate copies)
+       - constructs compatible header with relative offsets
++      - drop_cache: flush and evict each tensor from the page cache right after writing it, so writing
++        a file of tens of GB never holds more than one tensor's worth of dirty cache
+     """
+     if metadata is not None:
+         if not isinstance(metadata, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in metadata.items()):
+@@ -275,3 +278,7 @@ def save_file(
+             t = t.contiguous().cpu().view(-1)
+             mv = _tensor_bytes_view(t)
+             _stream_write(f, mv)
++            if drop_cache:
++                os.fdatasync(f.fileno())
++                if hasattr(os, "posix_fadvise"):
++                    os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+diff --git a/sc_measure.py b/sc_measure.py
+index a99157d..8031d5f 100644
+--- a/sc_measure.py
++++ b/sc_measure.py
+@@ -20,7 +20,6 @@ from exllamav3.modules.sliding_attn import SlidingAttention
+ from exllamav3.modules.gated_delta_net import GatedDeltaNet
+ from exllamav3.modules.quant.fp16 import LinearFP16
+ from exllamav3.modules.quant.exl3_lib.quantize import finalize_capture_H, get_hadamard_dt, had_k
+-from datasets import load_dataset
+ 
+ """
+ Single-model quantization sensitivity measurement by weight-space noise injection.
+@@ -251,6 +250,8 @@ def collect_targets(mod):
+ @disk_lru_cache("get_dataset_text")
+ def get_dataset_text(spec: dict):
+     assert spec["dataset"] == "wiki2", "Only wiki2 implemented atm"
++    # only the wikitext fallback (no --trace) needs the datasets package
++    from datasets import load_dataset
+     dataset_text = "\n\n".join(
+         load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split = "test")
+         ["text"]
+@@ -338,11 +339,21 @@ def main(args):
+         kl_vocab = min(vocab_size, x.shape[-1], ref.shape[-1])
+         x2 = x.reshape(-1, x.shape[-1])
+         ref2 = ref.reshape(-1, ref.shape[-1])
+-        kl_row = 0.0
++        mask = conf_masks[r] if conf_masks is not None else None
++        kl_row, n_row = 0.0, 0
+         for a in range(0, x2.shape[0], 256):
+             b = min(a + 256, x2.shape[0])
+-            kl_row += compute_kl_div(x2[a:b].float(), ref2[a:b].to(x.device), kl_vocab).sum().item()
+-        return kl_row / x2.shape[0]
++            kl = compute_kl_div(x2[a:b].float(), ref2[a:b].to(x.device), kl_vocab)
++            if mask is not None:
++                m = mask[a:b].to(kl.device)
++                kl_row += kl[m].sum().item()
++                n_row += int(m.sum().item())
++            else:
++                kl_row += kl.sum().item()
++                n_row += b - a
++        return kl_row / max(n_row, 1)
++
++    conf_masks = None
+ 
+     @torch.inference_mode()
+     def forward_rows(start_idx, states, collect_states = False):
+@@ -441,6 +452,18 @@ def main(args):
+         member_levels = defaultdict(lambda: rfns)
+         num_levels = len(rfns)
+ 
++    # Swap mode: each "level" is a quantized model whose dequantized weights replace the target's,
++    # i.e. single-module swap attribution of real quantization error (model_diff_attrib), but
++    # streamed with the same fan-out machinery, so it runs on models that do not fit in memory
++    swap_sources = []
++    if args.swap:
++        for d in args.swap.split(","):
++            cfg_s = Config.from_directory(d)
++            swap_sources.append((d, cfg_s, Model.from_config(cfg_s)))
++        member_levels = defaultdict(lambda: [0.0] * len(swap_sources))
++        num_levels = len(swap_sources)
++        print(f" -- Swap mode: {len(swap_sources)} source(s): " + ", ".join(d for d, _, _ in swap_sources))
++
+     def target_rfn(target, li):
+         """Nominal level of a target: its members' levels, numel-weighted rms for the record"""
+         per = [member_levels[m][li] for m in target.members]
+@@ -491,6 +514,25 @@ def main(args):
+     print(" -- Reference pass")
+     boundary, ref_logits = ref_pass()
+ 
++    # --kl_conf: score only positions where the reference's top token has at least this
++    # probability. Near-tie positions decorrelate under any perturbation (a large, noise-independent
++    # KL floor, especially on MoE models where routing ties flip) and would dominate the mean
++    if args.kl_conf > 0:
++        conf_masks, kept, total = [], 0, 0
++        for ref in ref_logits:
++            ref2 = ref.reshape(-1, ref.shape[-1])
++            kl_vocab = min(vocab_size, ref2.shape[-1])
++            m = []
++            for a in range(0, ref2.shape[0], 256):
++                p = torch.softmax(ref2[a:a + 256, :kl_vocab].to(args.device).float(), dim = -1)
++                m.append((p.max(dim = -1).values >= args.kl_conf).cpu())
++                del p
++            m = torch.cat(m)
++            conf_masks.append(m)
++            kept += int(m.sum().item())
++            total += m.numel()
++        print(f" -- KL scored on {kept}/{total} positions ({kept / max(total, 1):.1%}) with reference top-1 p >= {args.kl_conf}")
++
+     @torch.inference_mode()
+     def perturb_iid(lin, rfn, seed):
+         """
+@@ -580,6 +622,30 @@ def main(args):
+ 
+     SAVED_ON_HOST_BYTES = 1 << 30      # grouped targets park their saved weights in host RAM past this
+ 
++    @torch.inference_mode()
++    def swap_in(lin, li):
++        """Replace lin's weights in place by the dequantized weights of the same Linear in swap
++        source li. Returns (saved original weights, realized rfn, ||W||)."""
++        _, cfg_s, model_s = swap_sources[li]
++        src = model_s.find_module(lin.key)
++        cfg_s.stc.begin_deferred_load()
++        src.load(lin.inner.weight.device)
++        cfg_s.stc.end_deferred_load()
++        wq = src.inner.get_weight_tensor()
++        src.unload()
++        w = lin.inner.weight
++        k_in, k_out = min(w.shape[0], wq.shape[0]), min(w.shape[1], wq.shape[1])
++        saved = w.clone()
++        w[:k_in, :k_out].copy_(wq[:k_in, :k_out].to(w.dtype))
++        del wq
++        rows_per_chunk = max(1, 2 ** 24 // w.shape[1])
++        w_sq, err_sq = 0.0, 0.0
++        for a in range(0, w.shape[0], rows_per_chunk):
++            b = min(a + rows_per_chunk, w.shape[0])
++            w_sq += saved[a:b].float().square().sum().item()
++            err_sq += (w[a:b].float() - saved[a:b].float()).square().sum().item()
++        return saved, (err_sq / w_sq) ** 0.5, w_sq ** 0.5
++
+     @torch.inference_mode()
+     def perturb_target(target, li, draw, shaping):
+         """Perturb every member of a target at its own level (seeded per member, so single-Linear
+@@ -589,6 +655,15 @@ def main(args):
+         total_bytes = sum(lin.inner.weight.numel() * lin.inner.weight.element_size() for lin in target.linears)
+         to_host = target.grouped and total_bytes > SAVED_ON_HOST_BYTES
+         saved, err_sq, w_sq, shaped_all = [], 0.0, 0.0, True
++        if swap_sources:
++            for lin in target.linears:
++                sv, rfn_actual, w_norm = swap_in(lin, li)
++                if to_host:
++                    sv = sv.to("cpu", copy = True)
++                saved.append(sv)
++                err_sq += (rfn_actual * w_norm) ** 2
++                w_sq += w_norm ** 2
++            return saved, (err_sq / w_sq) ** 0.5, w_sq ** 0.5, False
+         for lin, rfn in zip(target.linears, per):
+             seed = zlib.crc32(f"{lin.key}|{li}|{draw}".encode()) & 0x7fffffff
+             shape_lin = shaping.get(lin.qmap) if args.shaped else None
+@@ -907,4 +982,9 @@ if __name__ == "__main__":
+     parser.add_argument("-dr", "--draws", type = int, default = 1, help = "Noise draws per level, default: 1")
+     parser.add_argument("-t", "--top", type = int, default = 15, help = "Top contributors to print")
+     parser.add_argument("-o", "--out", type = str, default = None, help = "Output file (JSON), resumes if present")
++    parser.add_argument("-klc", "--kl_conf", type = float, default = 0.0,
++                        help = "Score KL only at positions where the reference top-1 probability is at least this (0 = all positions)")
++    parser.add_argument("-sw", "--swap", type = str, default = None,
++                        help = "Comma-separated quantized model dirs: measure each target with its weights swapped "
++                               "for the dequantized weights from each model (one level per model) instead of noise")
+     main(parser.parse_args())
+diff --git a/sc_optimize.py b/sc_optimize.py
+index eeb1cbe..e4fb4cb 100644
+--- a/sc_optimize.py
++++ b/sc_optimize.py
+@@ -294,7 +294,7 @@ def main(args):
+                     qbits_key = r["qbits_key"],
+                     numel = r["numel"],
+                     S = r["S"],
+-                    kld = {k: kld_at(r, k) for k in range(args.min_k, args.max_k + 1)},
++                    kld = {k: kld_at(r, k) for k in range(int(args.min_k), int(args.max_k) + 1)},
+                 )
+                 for r in tensors + head
+             ],
+-- 
+2.53.0
+

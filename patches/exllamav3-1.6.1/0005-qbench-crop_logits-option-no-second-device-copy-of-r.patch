@@ -1,0 +1,139 @@
+From eb554b9cdbda732c2fc01dae631eaa1175701060 Mon Sep 17 00:00:00 2001
+From: Vemloir <Vemloir@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 16:29:16 +0500
+Subject: [PATCH 5/6] qbench: crop_logits option, no second device copy of row
+ states
+
+crop_logits: the output head only sees each row from its first scored position on, with the scored
+ranges and target ids shifted to match (long agent rows would otherwise need full-vocab logits for
+every position). Between modules a device state is owned by its .cpu() copy, so the extra device
+clone (which did not fit next to a long row's PLE state) is dropped; host tensors are still cloned.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B1AxxScwxpracGBcrTgLYr
+---
+ eval/qbench.py         | 25 +++++++++++++++++++------
+ eval/qbench/engines.py | 15 ++++++++++-----
+ 2 files changed, 29 insertions(+), 11 deletions(-)
+
+diff --git a/eval/qbench.py b/eval/qbench.py
+index 0543bfe..d3752d6 100644
+--- a/eval/qbench.py
++++ b/eval/qbench.py
+@@ -46,6 +46,7 @@ from qbench.data import (
+ )
+ from qbench.engines import open_backend
+ from qbench.measure import (
++    spans_of,
+     BF16_ROUNDING_EPS,
+     METRICS_VERSION,
+     DiffStats,
+@@ -67,6 +68,18 @@ def main(args):
+     cache = QCache(project["logit_cache"])
+ 
+     ids, ranges, trace_vocab = get_test_rows(project, cache)
++
++    # crop_logits: the output head only sees each row from its first scored position on, and the scored ranges
++    # (and the ids the statistics read targets from) shift with it. Long rows whose scored tokens sit near the end
++    # (agent trajectories) would otherwise produce full-vocab logits for every position (16k x 250k fp16 = 8 GB)
++    stat_ids, crop = ids, None
++    if project.get("crop_logits"):
++        crop = [min(a for a, _ in spans_of(rng)) for rng in ranges]
++        stat_ids = torch.zeros_like(ids)
++        for r, c in enumerate(crop):
++            stat_ids[r, :ids.shape[1] - c] = ids[r, c:]
++        ranges = [(rng[0] - c, rng[1] - c) if isinstance(rng[0], int) else [(a - c, b - c) for a, b in rng]
++                  for rng, c in zip(ranges, crop)]
+     max_len = ids.shape[-1] + 64
+     if project.get("test_trace"):
+         data_key = sha_key({"v": 1, "test_trace": os.path.basename(project["test_trace"]),
+@@ -116,12 +129,12 @@ def main(args):
+     if ref_results is None or not os.path.exists(ref_meta):
+         os.makedirs(ref_store, exist_ok = True)
+         backend = open_backend(ref, max_len, device)
+-        stats = DiffStats(ids, ranges, vocab_size, None)
++        stats = DiffStats(stat_ids, ranges, vocab_size, None)
+         conf_rows = []
+         def ref_callback(r, logits):
+             stats(r, logits)
+             save_reference_row(ref_store, r, logits, ranges[r], conf_rows)
+-        backend.run(ids, ref_callback)
++        backend.run(ids, ref_callback, crop = crop)
+         save_tensors(os.path.join(ref_store, "conf.safetensors"), {"conf": torch.cat(conf_rows).half()})
+         with open(ref_meta, "w") as f:
+             json.dump({"rows": ids.shape[0], "ranges": [list(r) for r in ranges]}, f)
+@@ -138,8 +151,8 @@ def main(args):
+         floor_results = cache.load_results(floor_results_key)
+         if floor_results is None:
+             backend = open_backend(ref, max_len, device)
+-            stats = DiffStats(ids, ranges, vocab_size, ref_store)
+-            backend.run(ids, stats, noise_eps = BF16_ROUNDING_EPS)
++            stats = DiffStats(stat_ids, ranges, vocab_size, ref_store)
++            backend.run(ids, stats, noise_eps = BF16_ROUNDING_EPS, crop = crop)
+             floor_results = stats.results()
+             floor_results.update(backend.info)
+             cache.save_results(floor_results_key, floor_results)
+@@ -160,8 +173,8 @@ def main(args):
+         res = cache.load_results(results_key)
+         if res is None:
+             backend = open_backend(mspec, max_len, device)
+-            stats = DiffStats(ids, ranges, vocab_size, ref_store)
+-            backend.run(ids, stats)
++            stats = DiffStats(stat_ids, ranges, vocab_size, ref_store)
++            backend.run(ids, stats, crop = crop)
+             res = stats.results()
+             res.update(backend.info)
+             cache.save_results(results_key, res)
+diff --git a/eval/qbench/engines.py b/eval/qbench/engines.py
+index 2366b02..a51ca08 100644
+--- a/eval/qbench/engines.py
++++ b/eval/qbench/engines.py
+@@ -48,7 +48,7 @@ class Exl3Backend:
+         self.model = Model.from_config(self.config)
+         self.info = None
+ 
+-    def run(self, ids: torch.Tensor, callback, noise_eps: float = None):
++    def run(self, ids: torch.Tensor, callback, noise_eps: float = None, crop: list = None):
+         from exllamav3.modules import Linear
+         modules = self.model.modules
+         # Per-row params, prepared by the architecture as Model.forward does before the module
+@@ -91,11 +91,16 @@ class Exl3Backend:
+                 for r in range(len(states)):
+                     params = params_rows[r]
+                     params.setdefault("input_ids", ids[r:r + 1])
++                    if logits_layer and crop is not None and crop[r] > 0:
++                        # head only from the first scored position on (see crop_logits in qbench.py)
++                        states[r] = states[r][:, crop[r]:]
+                     x = module.prepare_for_device(states[r], params)
+                     x = module.forward(x, params)
+                     # Modules may hand back a view of a shared g_tensor_cache workspace (mHC /
+-                    # GatedResidual streams); the next row's pass would overwrite it, so own it
+-                    if torch.is_tensor(x):
++                    # GatedResidual streams); the next row's pass would overwrite it, so own it.
++                    # A device tensor is owned by the .cpu() copy below (a second device copy of a
++                    # long row's state need not fit next to it); host tensors are cloned here
++                    if torch.is_tensor(x) and x.device.type == "cpu":
+                         x = x.clone()
+                     if noise_eps and idx < len(modules) - 2 and x.is_floating_point():
+                         x = apply_mult_noise(x, noise_eps, gen)
+@@ -1013,7 +1018,7 @@ class TransformersBackend:
+                 h.remove()
+ 
+     @torch.inference_mode()
+-    def run(self, ids: torch.Tensor, callback, noise_eps: float = None):
++    def run(self, ids: torch.Tensor, callback, noise_eps: float = None, crop: list = None):
+         if self.streaming:
+             return self._run_streaming(ids, callback, noise_eps)
+         hooks = self._noise_hooks(noise_eps) if noise_eps else []
+@@ -1158,7 +1163,7 @@ class LlamaCppBackend:
+             main_gpu = options.get("main_gpu", 0),
+         )
+ 
+-    def run(self, ids: torch.Tensor, callback, noise_eps: float = None):
++    def run(self, ids: torch.Tensor, callback, noise_eps: float = None, crop: list = None):
+         assert not noise_eps, "Noise injection not supported for llamacpp engine"
+         with ProgressBar("Evaluating", ids.shape[0]) as pb:
+             for r in range(ids.shape[0]):
+-- 
+2.53.0
+

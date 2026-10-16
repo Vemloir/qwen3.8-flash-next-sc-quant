@@ -26,3 +26,7 @@ calib_v2/
 calib/lentest/
 trace/mixed/
 eval/_logit_cache/
+!LICENSE
+!patches/**/*.patch
+!docs/*.png
+agent-env/node/

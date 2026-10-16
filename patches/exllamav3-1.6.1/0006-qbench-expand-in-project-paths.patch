@@ -1,0 +1,30 @@
+From 7063a81c92a6da617ac4349b56cf5013e62073ef Mon Sep 17 00:00:00 2001
+From: Vemloir <Vemloir@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:23:53 +0500
+Subject: [PATCH 6/6] qbench: expand ~ in project paths
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01B1AxxScwxpracGBcrTgLYr
+---
+ eval/qbench/data.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/eval/qbench/data.py b/eval/qbench/data.py
+index d1d577c..a024b4e 100644
+--- a/eval/qbench/data.py
++++ b/eval/qbench/data.py
+@@ -70,9 +70,10 @@ def load_tensor(filename: str, key: str) -> torch.Tensor:
+ 
+ 
+ def resolve_project_paths(project: dict, project_file: str):
+-    """Resolve relative paths in the project spec against the project file's directory"""
++    """Resolve relative paths in the project spec against the project file's directory (~ expanded)"""
+     base = os.path.dirname(os.path.abspath(project_file))
+     def resolve(p):
++        p = os.path.expanduser(p)
+         return p if os.path.isabs(p) else os.path.normpath(os.path.join(base, p))
+     if project.get("tokenizer"):
+         project["tokenizer"]["source"] = resolve(project["tokenizer"]["source"])
+-- 
+2.53.0
+

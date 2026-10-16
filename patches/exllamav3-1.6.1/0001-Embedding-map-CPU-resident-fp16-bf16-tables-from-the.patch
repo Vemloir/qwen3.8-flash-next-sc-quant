@@ -1,0 +1,96 @@
+From 2d36f123625e711fc11618498e2a821dfacd6f87 Mon Sep 17 00:00:00 2001
+From: Vemloir <Vemloir@users.noreply.github.com>
+Date: Thu, 1 Oct 2026 20:04:31 +0500
+Subject: [PATCH 1/6] Embedding: map CPU-resident fp16/bf16 tables from the
+ safetensors file
+
+The input embedding prefers CPU, where it was copied into anonymous memory even though
+lookups only read the rows of tokens actually seen (Qwen3.8-Flash-Next: 248320 x 2560
+bf16 = 1.2 GiB, mostly cold and the first thing pushed to swap under pressure). Map the
+tensor copy-on-write from its file instead: clean page cache that costs nothing until
+read and can be dropped rather than swapped. Bit-identical to the loaded copy.
+EXL3_EMBEDDING_MMAP=0 restores the old behaviour; Windows keeps the copy.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ exllamav3/modules/embedding.py | 37 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/exllamav3/modules/embedding.py b/exllamav3/modules/embedding.py
+index c753e67..3263bdb 100644
+--- a/exllamav3/modules/embedding.py
++++ b/exllamav3/modules/embedding.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ from typing_extensions import override
++import os
+ import torch
+ from torch import nn
+ from ..model.config import Config
+@@ -88,6 +89,7 @@ class Embedding(Module):
+         self.hidden_size = hidden_size
+         self.out_dtype = out_dtype
+         self._pinned_staging = {}
++        self._weight_mmap = None
+         self._numel = vocab_size * hidden_size
+         self.normalize = normalize
+         self.multiplier = multiplier
+@@ -106,6 +108,36 @@ class Embedding(Module):
+     def optimizer_targets(self):
+         return []
+ 
++    def _map_weight(self):
++        """
++        Map a CPU-resident fp16/bf16 table straight from its safetensors file instead of copying
++        it into anonymous memory. Lookups only touch the rows of tokens actually seen, and the
++        mapped pages are clean file cache: they cost no RAM until read, and the kernel can drop
++        them under memory pressure instead of swapping them (a 248k x 2560 bf16 table is 1.2 GiB
++        of otherwise mostly cold anonymous memory). The mapping is copy-on-write, so a module
++        that does write to the weight only privatizes the pages it touches.
++        EXL3_EMBEDDING_MMAP=0 restores the in-memory copy.
++        """
++        import mmap
++        if os.name == "nt" or os.environ.get("EXL3_EMBEDDING_MMAP", "1") == "0":
++            return None
++        stc = self.config.stc
++        key = self.key + ".weight"
++        if getattr(stc, "new_tensors", None) and key in stc.new_tensors:
++            return None
++        h = stc.get_tensor_handle(key, optional = True)
++        if h is None or h.dtype not in (torch.float16, torch.bfloat16):
++            return None
++        nbytes = h.num_rows * h.row_bytes
++        base = h.abs_offset - h.abs_offset % mmap.ALLOCATIONGRANULARITY
++        with open(h.filename, "rb") as f:
++            m = mmap.mmap(f.fileno(), h.abs_offset - base + nbytes, access = mmap.ACCESS_COPY, offset = base)
++        esize = torch.empty(0, dtype = h.dtype).element_size()
++        weight = torch.frombuffer(m, dtype = h.dtype, count = nbytes // esize, offset = h.abs_offset - base)
++        weight = weight.view(h.shape)
++        self._weight_mmap = m
++        return weight
++
+     @override
+     def load(self, device: torch.device, **kwargs):
+         self.device = device
+@@ -123,7 +155,9 @@ class Embedding(Module):
+         if table is not None:
+             self.embedding = TableEmbedding(table, self.hidden_size, device, signs)
+             return
+-        weight = stc.get_tensor(self.key + ".weight", self.device, float2half = True, allow_bf16 = True)
++        weight = self._map_weight() if torch.device(device).type == "cpu" else None
++        if weight is None:
++            weight = stc.get_tensor(self.key + ".weight", self.device, float2half = True, allow_bf16 = True)
+         self._numel = weight.numel()
+         # Built around the loaded weight: constructing on the meta device and swapping the weight in
+         # runs the default initializer there, and the first meta-device op in a process imports
+@@ -136,6 +170,7 @@ class Embedding(Module):
+             self.embedding.table.close()
+         self.device = None
+         self.embedding = None
++        self._weight_mmap = None
+ 
+     @override
+     def prepare_for_device(self, x: torch.Tensor, params: dict) -> torch.Tensor:
+-- 
+2.53.0
+
