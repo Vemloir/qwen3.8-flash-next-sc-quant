@@ -53,7 +53,7 @@ from Nemotron-SFT-Multilingual, translated answers):
 |---|---|---|---|
 | Russian (16 rows) | 0.00761 | 0.00964 | -21.1% [-34.6%, -7.6%] |
 | de, es, fr, it, zh, ja, ko, pt, hi (36 rows) | 0.00446 | 0.00514 | -13.4% [-17.5%, -8.1%] |
-| **All** | **0.00544** | **0.00655** | **-16.9% [-25.1%, -10.0%]**, lower on 41/52 rows |
+| **All** | **0.00544** | **0.00655** | **-16.9% [-24.6%, -10.1%]**, lower on 41/52 rows |
 
 Caveats:
 - The head is 8 bpw here against 6 in turboderp's quant (+~150 MB); the head is outside the bits-per-weight budget

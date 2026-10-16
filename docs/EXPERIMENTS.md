@@ -116,7 +116,7 @@ over rows (`nemotron_eval_trace.py`, `multilingual_eval_trace.py`):
 | Trace | SC 4.05 | turboderp 4.05 | Difference |
 |---|---|---|---|
 | Nemotron 3.5 Super post-training conversations (agents, SWE, chat, instruction following, math proofs), 48 rows | 0.00796 | 0.00909 | -12.4% [-18.6%, -6.2%], 38/48 rows |
-| Multilingual (16 Russian, 36 in 9 other languages), 52 rows | 0.00544 | 0.00655 | -16.9% [-25.1%, -10.0%], 41/52 rows |
+| Multilingual (16 Russian, 36 in 9 other languages), 52 rows | 0.00544 | 0.00655 | -16.9% [-24.6%, -10.1%], 41/52 rows |
 
 Per source: math proofs -30%, SWE -18%, knowledge agent -15%, chat -13%, tool calling -7%, multi-turn instruction
 following 0%; Russian -21%, Korean/Portuguese/Hindi -19 to -27%, Japanese/Spanish -1%. Several things differ from
