@@ -13,17 +13,17 @@ models:
   - label: BF16 (reference)
     group: reference
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/BF16
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/BF16
 
   - label: SC 4.00 v2 calibration (ours)
     group: SC v2
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00-v2
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00-v2
 
   - label: 4.05 bpw (turboderp)
     group: EXL3 plain
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
 
 output:
   results: qb_bf16_v2_results.json

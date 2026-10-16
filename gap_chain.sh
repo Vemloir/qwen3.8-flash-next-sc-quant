@@ -6,9 +6,9 @@
 #   3. drop the MiMo task images and the local FP8-sourced quant (backed up on HF)
 #   4. convert from BF16 (convert_bf16.sh), qbench vs BF16
 set -u
-Q=/home/daniil/lm-inference/sc-quant; T=$Q/trace; R=$Q/agent-runs-mixed
-M=/home/daniil/lm-inference/models/Qwen3.8-Flash-Next; TREE=/home/daniil/lm-inference/exllamav3-1.5.3-patched
-PY=/home/daniil/lm-inference/tabbyAPI/venv/bin/python
+Q=$HOME/lm-inference/sc-quant; T=$Q/trace; R=$Q/agent-runs-mixed
+M=$HOME/lm-inference/models/Qwen3.8-Flash-Next; TREE=$HOME/lm-inference/exllamav3-1.5.3-patched
+PY=$HOME/lm-inference/tabbyAPI/venv/bin/python
 log() { echo "$(date '+%F %H:%M:%S') $*"; }
 
 log "multi-turn chats"
@@ -26,13 +26,13 @@ chat low    '{"enable_thinking": true, "reasoning_effort": "low"}'    4096
 chat medium '{"enable_thinking": true, "reasoning_effort": "medium"}' 6144
 
 log "agent gaps"
-cd /home/daniil/lm-inference
+cd $HOME/lm-inference
 systemd-run --user --scope -q --unit=sc-tabby-mixed-$(date +%s) -p MemoryMax=57G -p MemorySwapMax=8G \
     python3 qwen38_flash_next_sc400.py > $Q/tabby_mixed.log 2>&1 &
 for i in $(seq 1 120); do curl -s -o /dev/null --max-time 5 http://127.0.0.1:1337/health && break; sleep 5; done
 if curl -s -o /dev/null --max-time 5 http://127.0.0.1:1337/health; then
     $Q/capped.sh proxy 512M $PY $Q/agent-env/trace_proxy.py --upstream http://127.0.0.1:1337 --port 1338 \
-        --log_dir $R/logs --api_key_file /home/daniil/lm-inference/tabbyAPI/api_tokens.yml >> $R/proxy.log 2>&1 &
+        --log_dir $R/logs --api_key_file $HOME/lm-inference/tabbyAPI/api_tokens.yml >> $R/proxy.log 2>&1 &
     sleep 3
     (cd $Q/agent-env && $Q/capped.sh runner 2G $PY -u run_agents.py --tasks tasks_gap.json --runs $R --split trace \
         --parallel 1 --cap_tokens 60000 --max_minutes 30 --idle_minutes 10 --mem 6g --cpus 8 >> $R/runner.log 2>&1)
@@ -51,7 +51,7 @@ log "tabby and proxy stopped, MiMo task images removed"
 if $PY - <<'PYEOF'
 import os, sys
 from huggingface_hub import HfApi
-d = "/home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00"
+d = "$HOME/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00"
 remote = {f.path: f.size for f in HfApi().list_repo_tree("Vemloir/Qwen3.8-Flash-Next-exl3",
           revision = "4.00bpw_tb400_fp8src", recursive = True) if hasattr(f, "size")}
 bad = [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f)) and f.endswith((".safetensors", ".json"))

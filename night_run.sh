@@ -2,14 +2,14 @@
 # Night run: pipeline tabby (memory-capped) -> 9 full agent sessions one at a time -> stop tabby ->
 # continue the truncated chat-trace responses. Every process runs in its own capped user scope.
 set -u
-Q=/home/daniil/lm-inference/sc-quant
+Q=$HOME/lm-inference/sc-quant
 R=$Q/agent-runs
-PY=/home/daniil/lm-inference/tabbyAPI/venv/bin/python
+PY=$HOME/lm-inference/tabbyAPI/venv/bin/python
 log() { echo "$(date '+%F %H:%M:%S') $*"; }
 
 log "night run start"
 if ! curl -s -o /dev/null --max-time 5 http://127.0.0.1:1337/health; then
-    cd /home/daniil/lm-inference
+    cd $HOME/lm-inference
     systemd-run --user --scope -q --unit=sc-tabby-$(date +%s) -p MemoryMax=57G -p MemorySwapMax=8G \
         python3 qwen38_flash_next_exl3_4.05.py > $Q/tabby_agent.log 2>&1 &
     for i in $(seq 1 120); do curl -s -o /dev/null --max-time 5 http://127.0.0.1:1337/health && break; sleep 5; done
@@ -19,7 +19,7 @@ log "tabby healthy"
 
 if ! systemctl --user list-units --type=scope 'sc-proxy-*' --no-legend | grep -q .; then
     $Q/capped.sh proxy 512M $PY $Q/agent-env/trace_proxy.py --upstream http://127.0.0.1:1337 --port 1338 \
-        --log_dir $R/logs --api_key_file /home/daniil/lm-inference/tabbyAPI/api_tokens.yml >> $R/proxy.log 2>&1 &
+        --log_dir $R/logs --api_key_file $HOME/lm-inference/tabbyAPI/api_tokens.yml >> $R/proxy.log 2>&1 &
     sleep 3
 fi
 

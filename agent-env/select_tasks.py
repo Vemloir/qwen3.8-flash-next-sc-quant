@@ -7,10 +7,10 @@ sessions also carry non-English text.
 
     venv/bin/python select_tasks.py -o tasks.json
 """
-import argparse, json, random, urllib.request
+import argparse, json, os, random, urllib.request
 import pyarrow.parquet as pq
 
-DS = "/home/daniil/lm-inference/datasets/MiMo-V2.6-RL-oss/"
+DS = os.path.expanduser("~/lm-inference/datasets/MiMo-V2.6-RL-oss/")
 REPO = "xiaomimimo/mimo-v2.6-rl-oss"
 HARNESSES = ["pi", "opencode", "codex"]
 LANG = {

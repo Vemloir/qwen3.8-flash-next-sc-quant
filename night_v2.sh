@@ -8,8 +8,8 @@
 # Disk: logit caches are freed between qbench projects; the conversion needs ~100 GB at its peak.
 # Skips if a model server is up.
 set -u
-Q=/home/daniil/lm-inference/sc-quant; M=/home/daniil/lm-inference/models/Qwen3.8-Flash-Next
-TREE=/home/daniil/lm-inference/exllamav3-1.5.3-patched; PY=/home/daniil/lm-inference/tabbyAPI/venv/bin/python
+Q=$HOME/lm-inference/sc-quant; M=$HOME/lm-inference/models/Qwen3.8-Flash-Next
+TREE=$HOME/lm-inference/exllamav3-1.5.3-patched; PY=$HOME/lm-inference/tabbyAPI/venv/bin/python
 T=$Q/trace/mixed; C=$Q/eval/_logit_cache/qbench
 log() { echo "$(date '+%F %H:%M:%S') $*"; }
 if curl -s -o /dev/null --max-time 5 http://127.0.0.1:1337/health; then log "tabby is running, night run skipped"; exit 1; fi
@@ -52,7 +52,7 @@ rm -rf $(ref_dirs)
 if $PY - <<'PYEOF'
 import os, sys
 from huggingface_hub import HfApi
-d = "/home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00-bf16src"
+d = "$HOME/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00-bf16src"
 remote = {f.path: f.size for f in HfApi().list_repo_tree("Vemloir/Qwen3.8-Flash-Next-exl3",
           revision = "4.00bpw_tb400v1_bf16src", recursive = True) if hasattr(f, "size")}
 bad = [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f)) and f.endswith((".safetensors", ".json"))

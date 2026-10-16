@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Resume the BF16 conversion after the disk-full stop (convert_bf16.sh resumes from args.json),
 # then qbench the BF16-sourced quant against the BF16 reference (recomputed: its cache was freed)
-Q=/home/daniil/lm-inference/sc-quant; TREE=/home/daniil/lm-inference/exllamav3-1.5.3-patched
-PY=/home/daniil/lm-inference/tabbyAPI/venv/bin/python
+Q=$HOME/lm-inference/sc-quant; TREE=$HOME/lm-inference/exllamav3-1.5.3-patched
+PY=$HOME/lm-inference/tabbyAPI/venv/bin/python
 log() { echo "$(date '+%F %H:%M:%S') $*"; }
 log "BF16 conversion resume"
 $Q/convert_bf16.sh >> $Q/convert_tb400_bf16.log 2>&1

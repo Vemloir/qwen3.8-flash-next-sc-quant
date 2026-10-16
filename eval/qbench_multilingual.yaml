@@ -1,0 +1,35 @@
+# SC 4.05 bpw (ours) and turboderp 4.05 against BF16 on a multilingual teacher-forced trace: Russian (GrandMaster prompts,
+# Qwen3-235B answers) and 9 more languages (Nemotron-SFT-Multilingual translated answers); no overlap with calibration
+title: Qwen3.8-Flash-Next, multilingual conversations (ru + 9 languages, teacher-forced), BF16 reference
+
+test_trace: multilingual_trace.json
+
+logit_cache:
+  dir: _logit_cache/
+  max_size_gb: 40
+
+noise_floor: false
+
+# long agent rows: the head only sees positions from the first scored token on
+crop_logits: true
+
+models:
+  - label: BF16 (reference)
+    group: reference
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/BF16
+
+  - label: SC 4.05 (ours)
+    group: SC
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.05-v3
+
+  - label: 4.05 bpw (turboderp)
+    group: EXL3 plain
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
+
+output:
+  results: qb_multilingual_results.json
+  plot_kld: qb_multilingual_kld.png
+  plot_kld_spread: qb_multilingual_kld_spread.png

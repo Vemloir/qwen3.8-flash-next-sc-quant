@@ -1,4 +1,4 @@
-# /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
+# ~/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
 
 reasoning_effort xhigh, temperature 1.0, top_k 20, top_p 0.95, seed 1234
 

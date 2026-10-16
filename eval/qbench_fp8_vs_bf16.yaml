@@ -15,13 +15,13 @@ models:
   - label: FP8 + BF16 n-gram (cached logits)
     group: reference
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/FP8
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/FP8
     cached_key: a902cd745d29fc3d
 
   - label: BF16
     group: BF16
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/BF16
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/BF16
 
 output:
   results: qb_fp8_vs_bf16.json

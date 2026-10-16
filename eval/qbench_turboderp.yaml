@@ -13,17 +13,17 @@ models:
   - label: FP8 + BF16 n-gram (reference)
     group: reference
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/FP8
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/FP8
 
   - label: SC 4.00 bpw (ours)
     group: SC (ours)
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00
 
   - label: 4.05 bpw (turboderp)
     group: EXL3 plain
     engine: exllamav3
-    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
+    source: ~/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
 
 output:
   plot_kld: qb_kld.png

@@ -1,5 +1,5 @@
 # v3: experts 4/4/4 except layer 0 at 3/3/5 and layers 1-7, 9 at 3.5/3.5/5 (gate/up/down, from split_grid), layers 43-47 back to 4; shared experts, attention k/v and indexer 8; GDN out_proj 7 in all layers; rest of dense 6; head 8
-model: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/BF16
+model: ~/lm-inference/models/Qwen3.8-Flash-Next/BF16
 target_bpw: 4.05
 achieved_bpw: 4.049791
 head_bits: 8
