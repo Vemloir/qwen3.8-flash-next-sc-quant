@@ -14,7 +14,7 @@ tags:
 
 Evaluation traces and results for the self-calibrated EXL3 quant of Qwen3.8-Flash-Next
 ([Vemloir/Qwen3.8-Flash-Next-sc-exl3](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3), branch
-`4.05bpw_sc_h8`), measured against BF16 with exllamav3 qbench. The calibration data is in three separate datasets:
+`4.05bpw_sc_h8_ng8`), measured against BF16 with exllamav3 qbench. The calibration data is in three separate datasets:
 [agents](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-agents),
 [chat](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-chat),
 [multimodal](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-multimodal).

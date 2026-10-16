@@ -21,10 +21,10 @@ independent traces that played no part in calibration.
 
 | Branch | Bits per weight | Head | Vision | Model files | n-gram table | Requires |
 |---|---|---|---|---|---|---|
-| [4.05bpw_sc_h8](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3/tree/4.05bpw_sc_h8) | 4.05 (4.0498) | 8 bpw | 8 bpw | 69 GB | 52 GB, 8 bpw | exllamav3 >= 1.6.1 |
+| [4.05bpw_sc_h8_ng8](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3/tree/4.05bpw_sc_h8_ng8) | 4.05 (4.0498) | 8 bpw | 8 bpw | 69 GB | 52 GB, 8 bpw | exllamav3 >= 1.6.1 |
 
 ```
-hf download Vemloir/Qwen3.8-Flash-Next-sc-exl3 --revision 4.05bpw_sc_h8 --local-dir Qwen3.8-Flash-Next-sc-exl3-4.05bpw
+hf download Vemloir/Qwen3.8-Flash-Next-sc-exl3 --revision 4.05bpw_sc_h8_ng8 --local-dir Qwen3.8-Flash-Next-sc-exl3-4.05bpw
 ```
 
 ## Results
@@ -125,7 +125,7 @@ VRAM and the model no longer fits.
 | Calibration data (ODbL-1.0) | [agents](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-agents), [chat](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-chat), [multimodal](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-multimodal), [collection](https://huggingface.co/collections/Vemloir/qwen38-flash-next-calibration-6ad213d9c7ec92750d7967e2) |
 | Evaluation traces and results | [Vemloir/Qwen3.8-Flash-Next-evaluation](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-evaluation), [collection](https://huggingface.co/collections/Vemloir/qwen38-flash-next-evaluation-6ad213dac3e3433f12276139) |
 | Code, patches, experiment notes (MIT) | [Vemloir/qwen3.8-flash-next-sc-quant](https://github.com/Vemloir/qwen3.8-flash-next-sc-quant) |
-| Recipe and full bit map | `recipe.yaml`, `bit_allocation.md` in the [4.05bpw_sc_h8](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3/tree/4.05bpw_sc_h8) branch |
+| Recipe and full bit map | `recipe.yaml`, `bit_allocation.md` in the [4.05bpw_sc_h8_ng8](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3/tree/4.05bpw_sc_h8_ng8) branch |
 
 ## License
 

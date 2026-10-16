@@ -7,7 +7,7 @@ import io, json, os, struct, sys
 from huggingface_hub import HfApi, CommitOperationAdd
 
 SRC = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.05-v3/ngram_embedding.safetensors")
-REPO, BRANCH = "Vemloir/Qwen3.8-Flash-Next-sc-exl3", "4.05bpw_sc_h8"
+REPO, BRANCH = "Vemloir/Qwen3.8-Flash-Next-sc-exl3", "4.05bpw_sc_h8_ng8"
 
 
 class SlicedFile(io.RawIOBase):
