@@ -27,5 +27,4 @@ Details, results and caveats are in each branch's README. Calibration data:
 [Vemloir/Qwen3.8-Flash-Next-evaluation](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-evaluation); code:
 [Vemloir/qwen3.8-flash-next-sc-quant](https://github.com/Vemloir/qwen3.8-flash-next-sc-quant).
 
-Requires exllamav3 >= 1.6.1. The per-layer n-gram table (`ngram_embedding.safetensors`) is not included; see the
-branch README.
+Requires exllamav3 >= 1.6.1.

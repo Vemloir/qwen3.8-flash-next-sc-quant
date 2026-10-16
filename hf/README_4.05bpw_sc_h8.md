@@ -26,7 +26,7 @@ BF16 on held-out data that played no part in calibration.
 | Vision tower | 8 bpw |
 | Converted with | exllamav3 1.6.1 + affinity-weighted expert Hessians (see below) |
 | Runs on | stock exllamav3 >= 1.6.1, TabbyAPI |
-| n-gram (PLE) table | **not included**, see below |
+| n-gram (PLE) table | 8 bpw, 52 GB, see below |
 
 ## Results
 
@@ -88,9 +88,10 @@ allocation map are also in this branch (`recipe.yaml`, `bit_allocation.png`, `bi
 
 ## n-gram table
 
-The 52 GB per-layer n-gram embedding table (`ngram_embedding.safetensors`) is not in this branch. The results above
-were measured with an 8-bit table quantized from BF16 (exllamav3 `-ngb 8`). The table from turboderp's 4.05 branch
-(6-bit, 39 GB) fits the same model and is the easy option; copy it next to the other files.
+`ngram_embedding.safetensors` (52 GB) is the per-layer n-gram embedding (PLE) table, quantized to 8 bits from BF16
+without calibration (exllamav3 `-ngb 8`); every result above was measured with it. It is a lookup table: TabbyAPI
+streams the rows it needs from disk by default (`ngram_ram: false`), so it does not have to fit in RAM. The 6-bit
+table from turboderp's 4.05 branch (39 GB) also works with this model if disk space matters, untested here.
 
 ## Running
 
