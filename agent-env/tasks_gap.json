@@ -1,0 +1,93 @@
+[
+ {
+  "domain": "webdev",
+  "instance_id": "dasyn_260630_01379",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:webdev-rl-opensource",
+  "image_gb": 2.63,
+  "cwd": "/workspace",
+  "env_task_dir": null,
+  "prompt": "Bikin static website vanilla HTML CSS JS untuk portfolio blog bakery tema nature, vibes hijau earthy + cream, layout modern terinspirasi Spotify (sidebar mini, card grid, now baking bar). Isinya profil baker, artikel resep, galeri roti, menu seasonal, testimonial, dan chatbot kecil di kanan bawah tapi cuma mock/static response tanpa API/backend. Medium detail, responsive, smooth hover, data sample aja.\n\n\u041e\u0431\u0449\u0430\u0439\u0441\u044f \u0441\u043e \u043c\u043d\u043e\u0439 \u0438 \u043f\u0438\u0448\u0438 \u043f\u043e\u044f\u0441\u043d\u0435\u043d\u0438\u044f \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u044f\u0437\u044b\u043a\u0435.",
+  "split": "trace",
+  "harness": "codex",
+  "lang": "ru",
+  "session": "full-002-webdev-codex-eff_off"
+ },
+ {
+  "domain": "webdev",
+  "instance_id": "dasyn_260630_01379",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:webdev-rl-opensource",
+  "image_gb": 2.63,
+  "cwd": "/workspace",
+  "env_task_dir": null,
+  "prompt": "Bikin static website vanilla HTML CSS JS untuk portfolio blog bakery tema nature, vibes hijau earthy + cream, layout modern terinspirasi Spotify (sidebar mini, card grid, now baking bar). Isinya profil baker, artikel resep, galeri roti, menu seasonal, testimonial, dan chatbot kecil di kanan bawah tapi cuma mock/static response tanpa API/backend. Medium detail, responsive, smooth hover, data sample aja.\n\n\u041e\u0431\u0449\u0430\u0439\u0441\u044f \u0441\u043e \u043c\u043d\u043e\u0439 \u0438 \u043f\u0438\u0448\u0438 \u043f\u043e\u044f\u0441\u043d\u0435\u043d\u0438\u044f \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u044f\u0437\u044b\u043a\u0435.",
+  "split": "trace",
+  "harness": "codex",
+  "lang": "ru",
+  "session": "full-002-webdev-codex-eff_low"
+ },
+ {
+  "domain": "webdev",
+  "instance_id": "dasyn_260630_01379",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:webdev-rl-opensource",
+  "image_gb": 2.63,
+  "cwd": "/workspace",
+  "env_task_dir": null,
+  "prompt": "Bikin static website vanilla HTML CSS JS untuk portfolio blog bakery tema nature, vibes hijau earthy + cream, layout modern terinspirasi Spotify (sidebar mini, card grid, now baking bar). Isinya profil baker, artikel resep, galeri roti, menu seasonal, testimonial, dan chatbot kecil di kanan bawah tapi cuma mock/static response tanpa API/backend. Medium detail, responsive, smooth hover, data sample aja.\n\n\u041e\u0431\u0449\u0430\u0439\u0441\u044f \u0441\u043e \u043c\u043d\u043e\u0439 \u0438 \u043f\u0438\u0448\u0438 \u043f\u043e\u044f\u0441\u043d\u0435\u043d\u0438\u044f \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u044f\u0437\u044b\u043a\u0435.",
+  "split": "trace",
+  "harness": "codex",
+  "lang": "ru",
+  "session": "full-002-webdev-codex-eff_medium"
+ },
+ {
+  "domain": "terminal_bench",
+  "instance_id": "candidate-0867-software-frontend",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:general-agent-env-14",
+  "image_gb": 0.29,
+  "cwd": "/app",
+  "env_task_dir": null,
+  "prompt": "# Restore reliable file selection\n\nYou are repairing the existing React dropzone source under\n`/app/vendor/project`; do not replace it with a new script or bypass its\nruntime path.\n\nWhen `useFsAccessApi` is enabled, opening the dropzone first uses the browser\nFile System Access picker. Some browsers reject that picker with a\n`DOMException` named `NotAllowedError` even though the API was detected and the\nuser did not cancel. Treat that outcome as an unavailable capability:\n\n1. Extend the shared exception helpers in `src/utils/index.ts` with a precise\n   predicate for this failure.\n2. Update the existing picker branch in `src/index.tsx` so this failure is\n   handled like the existing security fallback: disable the FS Access path for\n   future opens, reset the native input, and click it only after the rejected\n   promise. Keep `AbortError` as cancellation and preserve the existing error\n   path for unrelated exceptions.\n3. Do not fabricate files. The native input change event must continue through\n   the existing extraction, accept/type, size, and `maxFiles` validation and\n   callback pipeline.\n\nCheck both files and the surrounding tests before editing. Run the focused\noffline regression contract after the repair:\n\n```sh\ncd /app/vendor/project\npython3 integration/run_regression.py --output /app/output.json\n```\n\nThe command must exit successfully and create `/app/output.json` with the\ncontract's schema and all checks true. Do not install packages or use network\naccess.\n",
+  "split": "trace",
+  "harness": "opencode",
+  "lang": "en",
+  "session": "full-049-terminal_bench-opencode-eff_off"
+ },
+ {
+  "domain": "terminal_bench",
+  "instance_id": "candidate-0867-software-frontend",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:general-agent-env-14",
+  "image_gb": 0.29,
+  "cwd": "/app",
+  "env_task_dir": null,
+  "prompt": "# Restore reliable file selection\n\nYou are repairing the existing React dropzone source under\n`/app/vendor/project`; do not replace it with a new script or bypass its\nruntime path.\n\nWhen `useFsAccessApi` is enabled, opening the dropzone first uses the browser\nFile System Access picker. Some browsers reject that picker with a\n`DOMException` named `NotAllowedError` even though the API was detected and the\nuser did not cancel. Treat that outcome as an unavailable capability:\n\n1. Extend the shared exception helpers in `src/utils/index.ts` with a precise\n   predicate for this failure.\n2. Update the existing picker branch in `src/index.tsx` so this failure is\n   handled like the existing security fallback: disable the FS Access path for\n   future opens, reset the native input, and click it only after the rejected\n   promise. Keep `AbortError` as cancellation and preserve the existing error\n   path for unrelated exceptions.\n3. Do not fabricate files. The native input change event must continue through\n   the existing extraction, accept/type, size, and `maxFiles` validation and\n   callback pipeline.\n\nCheck both files and the surrounding tests before editing. Run the focused\noffline regression contract after the repair:\n\n```sh\ncd /app/vendor/project\npython3 integration/run_regression.py --output /app/output.json\n```\n\nThe command must exit successfully and create `/app/output.json` with the\ncontract's schema and all checks true. Do not install packages or use network\naccess.\n",
+  "split": "trace",
+  "harness": "opencode",
+  "lang": "en",
+  "session": "full-049-terminal_bench-opencode-eff_low"
+ },
+ {
+  "domain": "terminal_bench",
+  "instance_id": "candidate-0867-software-frontend",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:general-agent-env-14",
+  "image_gb": 0.29,
+  "cwd": "/app",
+  "env_task_dir": null,
+  "prompt": "# Restore reliable file selection\n\nYou are repairing the existing React dropzone source under\n`/app/vendor/project`; do not replace it with a new script or bypass its\nruntime path.\n\nWhen `useFsAccessApi` is enabled, opening the dropzone first uses the browser\nFile System Access picker. Some browsers reject that picker with a\n`DOMException` named `NotAllowedError` even though the API was detected and the\nuser did not cancel. Treat that outcome as an unavailable capability:\n\n1. Extend the shared exception helpers in `src/utils/index.ts` with a precise\n   predicate for this failure.\n2. Update the existing picker branch in `src/index.tsx` so this failure is\n   handled like the existing security fallback: disable the FS Access path for\n   future opens, reset the native input, and click it only after the rejected\n   promise. Keep `AbortError` as cancellation and preserve the existing error\n   path for unrelated exceptions.\n3. Do not fabricate files. The native input change event must continue through\n   the existing extraction, accept/type, size, and `maxFiles` validation and\n   callback pipeline.\n\nCheck both files and the surrounding tests before editing. Run the focused\noffline regression contract after the repair:\n\n```sh\ncd /app/vendor/project\npython3 integration/run_regression.py --output /app/output.json\n```\n\nThe command must exit successfully and create `/app/output.json` with the\ncontract's schema and all checks true. Do not install packages or use network\naccess.\n",
+  "split": "trace",
+  "harness": "opencode",
+  "lang": "en",
+  "session": "full-049-terminal_bench-opencode-eff_medium"
+ },
+ {
+  "domain": "cyber",
+  "instance_id": "arvo_42498712",
+  "image": "xiaomimimo/mimo-v2.6-rl-oss:arvo-v1-42498712",
+  "image_gb": 0.57,
+  "cwd": "/home/agent",
+  "env_task_dir": null,
+  "prompt": "AddressSanitizer: heap-buffer-overflow in function `extract_name` in file `dnsmasq/src/rfc1035.c`",
+  "split": "trace",
+  "harness": "pi",
+  "lang": "en",
+  "session": "full-045-cyber-pi-eff_medium"
+ }
+]

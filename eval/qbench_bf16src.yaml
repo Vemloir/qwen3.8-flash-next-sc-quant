@@ -1,0 +1,37 @@
+# KLD/PPL of our 4.00 bpw quant converted from BF16 (same calibration and recipe as the FP8-sourced
+# one) and of 4.05 against the BF16 checkpoint (with the BF16 n-gram table) on turboderp's qbench
+# trace (22 rows, ~60k tokens, sampled from his 6.00 bpw quant, reasoning_effort medium)
+title: Qwen3.8-Flash-Next, turboderp qbench trace, BF16 reference
+
+test_trace: qbench_prompts_turboderp.json
+
+logit_cache:
+  dir: _logit_cache/
+  max_size_gb: 40
+
+models:
+  - label: BF16 (reference)
+    group: reference
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/BF16
+
+  - label: SC 4.00 bpw from BF16 (ours)
+    group: SC (ours)
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.00-bf16src
+
+  - label: 4.05 bpw (turboderp)
+    group: EXL3 plain
+    engine: exllamav3
+    source: /home/daniil/lm-inference/models/Qwen3.8-Flash-Next/EXL3-4.05
+
+output:
+  plot_kld: qb_bf16src_kld.png
+  plot_ppl: qb_bf16src_ppl.png
+  plot_kld_spread: qb_bf16src_kld_spread.png
+  results: qb_bf16src_results.json
+  plot_kld_hist: qb_bf16src_kld_hist.png
+  plot_kld_hist_combined:
+    file: qb_bf16src_kld_hist_combined.png
+    x_log: true
+    y_log: false
