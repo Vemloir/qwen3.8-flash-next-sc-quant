@@ -84,6 +84,10 @@ def logged_prompt_tokens(runs, session):
         return 0
 
 
+def free_gb(path = "/"):
+    return shutil.disk_usage(path).free / 1e9
+
+
 def container_env_path(image):
     r = sh("docker", "image", "inspect", "-f", "{{json .Config.Env}}", image)
     for kv in json.loads(r.stdout or "[]") or []:
@@ -190,13 +194,25 @@ def main(args):
         remaining[t["image"]] = remaining.get(t["image"], 0) + 1
     print(f" -- {len(tasks)} sessions ({len(done)} already done), parallel {args.parallel}", flush = True)
 
+    # Prefetch at most --prefetch tasks past the ones started, and only with --min_free_gb left on
+    # disk: pulling every task image up front (a webdev image is 10 GB unpacked) filled the disk
+    started = [0]
     def prefetch():
-        for t in tasks:
+        for k, t in enumerate(tasks):
+            while k >= started[0] + args.parallel + args.prefetch or free_gb() < args.min_free_gb:
+                time.sleep(10)
             pull(t["image"])
     threading.Thread(target = prefetch, daemon = True).start()
 
+    def run(t):
+        while free_gb() < args.min_free_gb:
+            print(f"    waiting for disk space ({free_gb():.1f} GB free)", flush = True)
+            time.sleep(60)
+        started[0] += 1
+        return run_task(t, args, remaining)
+
     with ThreadPoolExecutor(args.parallel) as ex:
-        for res in ex.map(lambda t: run_task(t, args, remaining), tasks):
+        for res in ex.map(run, tasks):
             res["t1"] = time.time()
             with LOCK, open(results_path, "a") as f:
                 f.write(json.dumps(res) + "\n")
@@ -222,4 +238,6 @@ if __name__ == "__main__":
     ap.add_argument("--keep_images", nargs = "*", default = [])
     ap.add_argument("--mem", default = "6g", help = "per-container memory cap (no swap)")
     ap.add_argument("--cpus", type = float, default = 8)
+    ap.add_argument("--prefetch", type = int, default = 1, help = "task images pulled ahead of the running ones")
+    ap.add_argument("--min_free_gb", type = float, default = 15, help = "no new pull or session below this much free disk")
     main(ap.parse_args())

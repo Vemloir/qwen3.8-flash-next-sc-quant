@@ -35,6 +35,7 @@ Host $SESSION
   ServerAliveInterval 30
   ServerAliveCountMax 4
   ExitOnForwardFailure yes
+  ConnectTimeout 60
 EOF
 SSH="ssh -F $STATE/ssh_config $SESSION"
 
