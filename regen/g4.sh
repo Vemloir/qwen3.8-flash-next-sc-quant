@@ -23,7 +23,7 @@ mkdir -p "$STATE" ~/.config/sc-quant
 chmod 700 ~/.config/sc-quant
 [ -f "$KEYFILE" ] || (umask 077; python3 -c "import secrets; print(secrets.token_urlsafe(32))" > "$KEYFILE")
 [ -f ~/.ssh/colab_ed25519 ] || ssh-keygen -q -t ed25519 -N "" -C colab-cli -f ~/.ssh/colab_ed25519
-cat > "$STATE/ssh_config" <<EOF
+cat > "$STATE/ssh_config_$SESSION" <<EOF
 Host $SESSION
   ProxyCommand $COLAB ssh --proxy-mode -s $SESSION -i $HOME/.ssh/colab_ed25519
   User root
@@ -37,7 +37,7 @@ Host $SESSION
   ExitOnForwardFailure yes
   ConnectTimeout 60
 EOF
-SSH="ssh -F $STATE/ssh_config $SESSION"
+SSH="ssh -F $STATE/ssh_config_$SESSION $SESSION"
 
 remote_tail() {   # file lines, via colab exec (no SSH slot needed)
     printf 'import subprocess\nprint(subprocess.run("tail -n %s %s", shell=True, capture_output=True, text=True).stdout)\n' "$2" "$1" \

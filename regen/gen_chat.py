@@ -64,12 +64,26 @@ async def main(args):
     if args.only:
         keep = {int(x) for x in args.only.split(",")}
         convs = [c for c in convs if c["conv"] in keep]
-    jobs = [(c, m) for c in convs for m in args.modes]
-    random.Random(0).shuffle(jobs)      # mix long and short jobs across the batch
-    if args.limit:
-        jobs = jobs[:args.limit]
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok = True)
     store = Store(args.output)
+    if args.per_conv:
+        # up to --per_conv modes per conversation: keep the modes already done, fill the rest from a
+        # rotation that keeps the modes balanced, and run every conversation's first mode before any
+        # second one
+        jobs = []
+        for c in convs:
+            have = [m for m in args.modes if store.has(f"{c['conv']}:{m}")]
+            rot = [args.modes[(c["conv"] + k * 2 + k // 2) % len(args.modes)] for k in range(len(args.modes))]
+            want = have + [m for m in rot if m not in have][:max(0, args.per_conv - len(have))]
+            jobs += [(len(have) + k, c, m) for k, m in enumerate(m for m in want if m not in have)]
+        rnd = random.Random(0)
+        rnd.shuffle(jobs)
+        jobs = [(c, m) for _, c, m in sorted(jobs, key = lambda j: j[0])]
+    else:
+        jobs = [(c, m) for c in convs for m in args.modes]
+        random.Random(0).shuffle(jobs)      # mix long and short jobs across the batch
+    if args.limit:
+        jobs = jobs[:args.limit]
     print(f" -- {len(convs)} conversations x {len(args.modes)} modes = {len(jobs)} jobs, "
           f"{sum(store.has(f'{c['conv']}:{m}') for c, m in jobs)} done", flush = True)
     sem = asyncio.Semaphore(args.parallel)
@@ -84,6 +98,7 @@ if __name__ == "__main__":
     ap.add_argument("-o", "--output", required = True)
     ap.add_argument("--modes", nargs = "+", default = list(MODES), choices = list(MODES))
     ap.add_argument("--parallel", type = int, default = 24)
+    ap.add_argument("--per_conv", type = int, default = 0, help = "modes per conversation (0: all)")
     ap.add_argument("--only", default = None, help = "comma-separated conversation indices")
     ap.add_argument("--limit", type = int, default = 0, help = "first N jobs only (smoke test)")
     asyncio.run(main(ap.parse_args()))
