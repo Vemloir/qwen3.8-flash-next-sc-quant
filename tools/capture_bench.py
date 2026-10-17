@@ -54,15 +54,23 @@ def main(args):
         torch.cuda.synchronize()
         return params
 
+    def to_cpu(p):
+        for d in list(p["capture"].values()) + list(p["capture_sens"].values()):
+            for k, v in d.items():
+                if isinstance(v, torch.Tensor):
+                    d[k] = v.cpu()
+        return p
+
     def timed(**kw):
         capture(**kw)                               # warm-up
         t0 = time.time()
         for _ in range(args.reps):
+            p = None
             p = capture(**kw)
         dt = (time.time() - t0) / args.reps
         print(f" -- capture {kw}: {dt:.2f} s per {args.tokens} tokens = {args.tokens / dt:,.0f} tokens/s "
               f"-> {2.15e6 / (args.tokens / dt) / 60:.1f} min per layer for 2.15M tokens", flush = True)
-        return p
+        return to_cpu(p)
 
     base = timed(fast = False, tf32 = False)
     variants = [dict(fast = True, tf32 = False), dict(fast = True, tf32 = True)] if args.compare else []

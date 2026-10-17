@@ -63,7 +63,7 @@ cd /content/exl3
 PYTHONPATH=/content/exl3 PYTORCH_ALLOC_CONF=expandable_segments:True \
 python3 -u convert.py -i "$BF16" -w "$WORK" -o "$OUT" \
     -rcp /content/sc-quant/calib/recipe_v3.yaml -cd "$CAL" -cr "$ROWS" -cc "$COLS" -cch 16384 \
-    -ngf "$OUT/ngram_embedding.safetensors" -vb 8 -ld -d 0 -cpi 1800 --out_scales always -mae 0.1 $RESUME
+    -ngf "$OUT/ngram_embedding.safetensors" -vb 8 -ld -d 0 -cpi "${CPI:-1800}" --out_scales always -mae 0.1 $RESUME
 log "conversion done"
 
 log "copying the model (without the n-gram table) to Drive"
