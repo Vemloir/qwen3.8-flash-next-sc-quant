@@ -51,12 +51,15 @@ def main(args):
     n_img = len(sel)
 
     # agents
-    pool = []
+    pool, take_forced = [], []
     for r in agents:
         m = re.search(r"-eff_(\w+)$", r["session"]).group(1)
         share = model_share(tok, r["ids"])
         r = {"key": f"agent:{r['session']}", "ids": r["ids"], "mode": m, "domain": r["session"].split("-")[2],
              "model_share": round(share, 3), "src": "agent"}
+        if r["key"] in args.force:
+            take_forced.append(r)
+            continue
         if len(r["ids"]) > args.max_row or share < args.min_model:
             print(f"    agent left out: {r['key']} {len(r['ids'])} tokens, model share {share:.1%}")
             continue
@@ -67,6 +70,9 @@ def main(args):
         nonlocal agent_used
         sel.append(r); used[r["mode"]] += len(r["ids"]); agent_mode[r["mode"]] += len(r["ids"])
         agent_used += len(r["ids"])
+    for r in take_forced:               # --force: whatever the filters say (e.g. the longest session)
+        print(f"    agent forced in: {r['key']} {len(r['ids'])} tokens, model share {r['model_share']:.1%}")
+        take_agent(r)
     # one long-context session (the one with the most model text), then the rest with long rows last,
     # so the budget covers many tasks; agents take at most --agent_mode_max of any mode's budget
     longs = [r for r in pool if len(r["ids"]) > args.long_row]
@@ -171,5 +177,6 @@ if __name__ == "__main__":
     ap.add_argument("--min_model", type = float, default = 0.08)
     ap.add_argument("--chat_cap", type = int, default = 32_768)
     ap.add_argument("--ref_max", type = int, default = 16384)
+    ap.add_argument("--force", nargs = "*", default = [], help = "agent keys to include regardless of the filters")
     ap.add_argument("--seed", type = int, default = 0)
     main(ap.parse_args())
