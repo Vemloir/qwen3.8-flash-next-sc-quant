@@ -98,7 +98,8 @@ def main(args):
         by_conv.setdefault(r["conv"], []).append(dict(r, src = "chat"))
     convs = list(by_conv)
     rng.shuffle(convs)
-    convs.sort(key = lambda c: by_conv[c][0]["lang"] != "ru")       # Russian first
+    # natural science first (the gap this set was extended for), then Russian, then the rest
+    convs.sort(key = lambda c: (by_conv[c][0]["source"] not in ("science", "science_ml"), by_conv[c][0]["lang"] != "ru"))
     chat_budget = args.budget - sum(used.values())
     chat_used = 0
     for c in convs:

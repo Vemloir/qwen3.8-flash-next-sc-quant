@@ -22,10 +22,11 @@ def main(args):
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
     verdict = {e["key"]: e["verdict"] for e in json.load(open(args.qa)) if e["kind"] == "chat"}
     accept = set(args.accept.split(",")) if args.accept else set()
+    reject = set(args.reject.split(",")) if args.reject else set()
     rows, mismatch, skipped = [], 0, {}
     for line in open(args.chat):
         r = json.loads(line)
-        v = "ok" if r["key"] in accept else verdict.get(r["key"], "missing")
+        v = "reject" if r["key"] in reject else "ok" if r["key"] in accept else verdict.get(r["key"], "missing")
         if r["status"] != "ok" or v == "reject":
             skipped[v if r["status"] == "ok" else r["status"]] = skipped.get(v if r["status"] == "ok" else r["status"], 0) + 1
             continue
@@ -57,5 +58,6 @@ if __name__ == "__main__":
     ap.add_argument("--qa", required = True)
     ap.add_argument("--tokenizer", required = True)
     ap.add_argument("--accept", default = "", help = "rejected keys accepted by hand, comma-separated")
+    ap.add_argument("--reject", default = "", help = "keys rejected by hand (e.g. language slips), comma-separated")
     ap.add_argument("-o", "--out", required = True)
     main(ap.parse_args())
