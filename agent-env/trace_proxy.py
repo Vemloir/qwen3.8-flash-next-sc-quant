@@ -15,10 +15,13 @@ context length.
 Harnesses do not send a reasoning mode, so the chat template falls back to its default (xhigh).
 A session named <name>-eff_<mode> (mode: off, low, medium, xhigh) gets the mode injected into
 every chat request before it is forwarded and logged: top-level reasoning_effort, or
-enable_thinking = false for off. The logged request is what the server rendered, so
-build_rows.py can reproduce the exact token stream.
+enable_thinking = false for off (TabbyAPI reads template variables from the top level). With
+--vllm the variables go into chat_template_kwargs instead, the only place vLLM passes them to the
+template. The logged request is what the server rendered, so build_rows.py can reproduce the
+exact token stream.
 
     python trace_proxy.py --upstream http://127.0.0.1:1337 --port 1338 --log_dir traces/
+    python trace_proxy.py --upstream http://127.0.0.1:18000 --vllm --api_key_env REGEN_API_KEY --log_dir traces/
 """
 import argparse, asyncio, json, os, re, time
 from aiohttp import web, ClientError, ClientSession, ClientTimeout
@@ -74,11 +77,17 @@ async def handle(request):
         req_json = None
     m = EFFORT_RE.search(session)
     if m and isinstance(req_json, dict) and rest.rstrip("/").endswith("chat/completions"):
-        if m.group(1) == "off":
-            req_json["enable_thinking"] = False
+        tvars = {"enable_thinking": False} if m.group(1) == "off" else \
+            {"enable_thinking": True, "reasoning_effort": m.group(1)}
+        if app["vllm"]:
+            req_json["chat_template_kwargs"] = {**(req_json.get("chat_template_kwargs") or {}), **tvars}
+            req_json.pop("enable_thinking", None)
+            if "reasoning_effort" in tvars:
+                req_json["reasoning_effort"] = tvars["reasoning_effort"]
+            else:
+                req_json.pop("reasoning_effort", None)
         else:
-            req_json["enable_thinking"] = True
-            req_json["reasoning_effort"] = m.group(1)
+            req_json.update(tvars)
         body = json.dumps(req_json).encode()
 
     # Harnesses (pi, codex) close the connection right after "data: [DONE]", before the chunked
@@ -125,7 +134,10 @@ async def make_app(args):
     app["upstream"] = args.upstream.rstrip("/")
     app["log_dir"] = args.log_dir
     app["api_key"] = None
-    if args.api_key_file:
+    app["vllm"] = args.vllm
+    if args.api_key_env:
+        app["api_key"] = os.environ[args.api_key_env]
+    elif args.api_key_file:
         import yaml
         app["api_key"] = yaml.safe_load(open(args.api_key_file))["api_key"]
     app["client"] = ClientSession(timeout = ClientTimeout(total = None, sock_read = 3600))
@@ -143,6 +155,8 @@ if __name__ == "__main__":
     ap.add_argument("--port", type = int, default = 1338)
     ap.add_argument("--log_dir", required = True)
     ap.add_argument("--api_key_file", default = None, help = "tabbyAPI api_tokens.yml; its api_key replaces the client's")
+    ap.add_argument("--api_key_env", default = None, help = "environment variable holding the server key, instead of --api_key_file")
+    ap.add_argument("--vllm", action = "store_true", help = "pass the reasoning mode in chat_template_kwargs")
     args = ap.parse_args()
     os.makedirs(args.log_dir, exist_ok = True)
     web.run_app(make_app(args), host = args.host, port = args.port, print = None)

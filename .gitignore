@@ -30,3 +30,4 @@ eval/_logit_cache/
 !patches/**/*.patch
 !docs/*.png
 agent-env/node/
+!regen/*.json
