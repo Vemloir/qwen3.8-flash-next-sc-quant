@@ -2,9 +2,11 @@
 # Local control of the Colab G4 generation server (Colab CLI + SSH over its WebSocket bridge).
 #
 #   regen/g4.sh up        allocate a G4 VM and start g4_serve.sh on it (model + container + vLLM)
+#   regen/g4.sh start     (re)run g4_serve.sh on a running VM, e.g. after editing it
 #   regen/g4.sh wait      follow the setup log until vLLM answers
 #   regen/g4.sh forward   keep 127.0.0.1:18000 -> VM 127.0.0.1:8000 open (reconnects; Ctrl-C stops)
 #   regen/g4.sh logs      tail of the vLLM log (through colab exec, so it works while forwarding)
+#   regen/g4.sh sh 'cmd'  run a bash command on the VM and print its output (also via colab exec)
 #   regen/g4.sh down      stop the VM (everything on it is lost)
 #
 # Colab allows one SSH connection per VM at a time: while `forward` runs, `logs` goes through
@@ -44,10 +46,17 @@ remote_tail() {   # file lines, via colab exec (no SSH slot needed)
 case "${1:-}" in
 up)
     "$COLAB" new -s "$SESSION" --gpu G4
-    "$COLAB" upload -s "$SESSION" "$HERE/g4_serve.sh" /content/g4_serve.sh
-    $SSH "REGEN_API_KEY='$(cat "$KEYFILE")' MAX_SEQS='${MAX_SEQS:-32}' setsid nohup bash /content/g4_serve.sh > /content/serve.log 2>&1 < /dev/null &" < /dev/null
-    echo "started; follow with: $0 wait"
+    "$0" start
     "$COLAB" usage | tail -2
+    ;;
+start)
+    "$COLAB" upload -s "$SESSION" "$HERE/g4_serve.sh" /content/g4_serve.sh > /dev/null
+    # the key goes through a 0600 file on the VM, not a command line
+    "$COLAB" upload -s "$SESSION" "$KEYFILE" /content/.regen_key > /dev/null
+    "$0" sh 'chmod 600 /content/.regen_key; : > /content/serve.log; : > /content/vllm.log
+REGEN_API_KEY=$(cat /content/.regen_key) MAX_SEQS='"${MAX_SEQS:-32}"' setsid nohup bash /content/g4_serve.sh >> /content/serve.log 2>&1 < /dev/null &
+echo started'
+    echo "follow with: $0 wait"
     ;;
 wait)
     for i in $(seq 240); do
@@ -66,6 +75,12 @@ forward)
     ;;
 logs)
     remote_tail /content/vllm.log "${2:-40}"
+    ;;
+sh)
+    tmp=$(mktemp); printf '%s\n' "$2" > "$tmp"
+    "$COLAB" upload -s "$SESSION" "$tmp" /content/.cmd.sh > /dev/null; rm -f "$tmp"
+    printf 'import subprocess\nr = subprocess.run(["bash", "/content/.cmd.sh"], capture_output=True, text=True)\nprint(r.stdout + r.stderr)\n' \
+        | timeout "${G4_SH_TIMEOUT:-300}" "$COLAB" exec -s "$SESSION"
     ;;
 down)
     "$COLAB" stop -s "$SESSION"
