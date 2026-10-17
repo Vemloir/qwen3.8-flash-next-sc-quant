@@ -105,6 +105,16 @@ async def handle(request):
     # Harnesses (pi, codex) close the connection right after "data: [DONE]", before the chunked
     # terminator; that must neither lose the log record nor cut the upstream stream short
     chunks, status, resp, client_gone = [], None, None, False
+    # the upstream can be briefly unreachable (an SSH port forward reconnecting): wait for it
+    # instead of failing the harness's request
+    for attempt in range(30):
+        try:
+            async with app["client"].get(app["upstream"] + "/health", timeout = ClientTimeout(total = 10)) as h:
+                if h.status < 500:
+                    break
+        except (ClientError, asyncio.TimeoutError):
+            pass
+        await asyncio.sleep(10)
     try:
         async with app["client"].request(request.method, url, data = body, headers = headers) as up:
             status = up.status

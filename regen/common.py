@@ -66,11 +66,28 @@ def max_block_repeats(text, span, step = 37):
     return best
 
 
-async def chat_stream(session, base_url, key, messages, mode, extra = None, timeout = None):
+CONNECTION_ERRORS = (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientPayloadError,
+                     aiohttp.ClientOSError)
+
+
+async def chat_stream(session, base_url, key, messages, mode, extra = None, timeout = None, retry_seconds = 300):
     """
-    One streamed chat completion. Returns {"reasoning", "content", "tool_calls", "finish",
-    "status", "usage", "seconds"}; status is "ok", "length", "loop" or "error".
+    One streamed chat completion, repeated from scratch while the server is unreachable or the
+    stream breaks (the SSH forward drops for a few seconds now and then), for up to retry_seconds.
+    Returns {"reasoning", "content", "finish", "status", "usage", "seconds"}; status is "ok",
+    "length", "loop" or "error".
     """
+    t_first = time.time()
+    while True:
+        r = await _chat_stream_once(session, base_url, key, messages, mode, extra, timeout)
+        if r.get("_retry") and time.time() - t_first < retry_seconds:
+            await asyncio.sleep(10)
+            continue
+        r.pop("_retry", None)
+        return r
+
+
+async def _chat_stream_once(session, base_url, key, messages, mode, extra, timeout):
     body = {"model": MODEL, "messages": messages, "stream": True,
             "stream_options": {"include_usage": True},
             "chat_template_kwargs": dict(MODES[mode]), **SAMPLING}
@@ -110,6 +127,8 @@ async def chat_stream(session, base_url, key, messages, mode, extra = None, time
                         status = "loop"
                 if status == "loop":
                     break
+    except CONNECTION_ERRORS as e:
+        return {"status": "error", "error": repr(e)[:500], "seconds": round(time.time() - t0, 1), "_retry": True}
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         return {"status": "error", "error": repr(e)[:500], "seconds": round(time.time() - t0, 1)}
     if status == "ok" and out["finish"] == "length":
