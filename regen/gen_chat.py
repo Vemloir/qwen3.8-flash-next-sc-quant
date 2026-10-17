@@ -7,7 +7,8 @@ Conversations: exllamav3 sc_trace.py's seed list, trace/extra_conversations.json
 English, some multi-turn), regen/prompts_ru.json (Russian everyday, study and work topics, added
 because the first set had 28 Russian conversations of 207), trace/music_prompts.json and
 regen/prompts_science.json (biology, chemistry, physics, medicine, earth sciences in English and
-Russian: the other sources had about 20 natural-science conversations).
+Russian: the other sources had about 20 natural-science conversations) and
+regen/prompts_science_ml.json (the same subjects in 14 more languages, three prompts each).
 
 History turns carry the previous answer only, without its reasoning, as chat front ends send it;
 the chat template then renders an empty think block for them (preserve_thinking default). A
@@ -36,9 +37,12 @@ def conversations():
     # appended last, so earlier conversations keep their indices (records are keyed by them)
     out += [{"source": "science", "turns": [seed] + list(fu)}
             for seed, fu in json.load(open(f"{Q}/regen/prompts_science.json"))]
+    # natural science in 14 more languages (Ukrainian among them, so not labelled by script)
+    out += [{"source": "science_ml", "turns": [seed] + list(fu), "lang": "other"}
+            for seed, fu in json.load(open(f"{Q}/regen/prompts_science_ml.json"))]
     for i, c in enumerate(out):
         c["conv"] = i
-        c["lang"] = "ru" if has_cyrillic(c["turns"][0]) else "other"
+        c.setdefault("lang", "ru" if has_cyrillic(c["turns"][0]) else "other")
     return out
 
 
