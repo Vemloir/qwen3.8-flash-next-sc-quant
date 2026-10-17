@@ -98,8 +98,8 @@ def main(args):
         by_conv.setdefault(r["conv"], []).append(dict(r, src = "chat"))
     convs = list(by_conv)
     rng.shuffle(convs)
-    # natural science first (the gap this set was extended for), then Russian, then the rest
-    convs.sort(key = lambda c: (by_conv[c][0]["source"] not in ("science", "science_ml"), by_conv[c][0]["lang"] != "ru"))
+    # natural science and music first (few conversations, easily crowded out), then Russian, then the rest
+    convs.sort(key = lambda c: (by_conv[c][0]["source"] not in ("science", "science_ml", "music"), by_conv[c][0]["lang"] != "ru"))
     chat_budget = args.budget - sum(used.values())
     chat_used = 0
     for c in convs:
@@ -107,11 +107,16 @@ def main(args):
             break
         cands = by_conv[c]
         short = [r for r in cands if len(r["ids"]) <= args.chat_cap]
-        cands = short or cands
+        cands = short if cands[0]["source"] == "music" else (short or cands)   # no overlong scores
+        if not cands:
+            continue
         open_ = [r for r in cands if target[r["mode"]] - used[r["mode"]] > 0]
         if not open_:
             continue
-        if cands[0]["lang"] == "ru":
+        if cands[0]["source"] == "music":
+            # music rows are long ABC scores: the shortest open mode, so music stays a small share
+            r = min(open_, key = lambda r: len(r["ids"]))
+        elif cands[0]["lang"] == "ru":
             # Russian: the longest open mode, to raise the Russian share
             r = max(open_, key = lambda r: len(r["ids"]))
         else:
