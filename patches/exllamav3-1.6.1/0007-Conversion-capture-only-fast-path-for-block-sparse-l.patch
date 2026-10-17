@@ -1,0 +1,183 @@
+From 229ec205b3d62631792304841781189fdab82ef1 Mon Sep 17 00:00:00 2001
+From: Vemloir <Vemloir@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:47:24 +0500
+Subject: [PATCH] Conversion: capture-only fast path for block-sparse layers
+ with every expert active
+
+The calibration capture pass activates every expert and convert.py discards its
+output (reference states are rerun with normal routing, and the state is advanced
+with the quantized layer). For that case the routed-expert loop no longer gathers
+every row per expert, runs the down projection, weights or scatter-adds the result:
+each expert's gate/up see the rows as they are and only the down projection's input
+is captured. Hessians, affinity-weighted Hessians and output sensitivities are
+bit-identical to the general path (tools/capture_bench.py in sc-quant); the capture
+pass of a Qwen3.8-Flash-Next layer runs 1.6x faster on an RTX 5070 Ti.
+
+EXL3_CAPTURE_TF32=1 accumulates the Hessians on TF32 tensor cores (another ~9%; the
+plain Hessian then differs by ~5e-5 relative from summation order, the weighted one
+by ~3e-4).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ exllamav3/conversion/convert_model.py |  7 ++++
+ exllamav3/modules/block_sparse_mlp.py | 48 ++++++++++++++++++++++++++-
+ exllamav3/modules/linear.py           | 38 +++++++++++++--------
+ 3 files changed, 79 insertions(+), 14 deletions(-)
+
+diff --git a/exllamav3/conversion/convert_model.py b/exllamav3/conversion/convert_model.py
+index d8f8262a..d64dd2f0 100644
+--- a/exllamav3/conversion/convert_model.py
++++ b/exllamav3/conversion/convert_model.py
+@@ -1074,6 +1074,9 @@ def capture_module_parallel(
+                     "capture": captures[t_idx],
+                     "capture_sens": captures_sens[t_idx],
+                     "activate_all_experts": model.calibration_all_experts,
++                    # with every expert active the output is discarded (references are rerun with
++                    # normal routing below), so block-sparse layers may skip computing it
++                    "capture_only": model.calibration_all_experts,
+                     "input_ids": original_input_ids[i],
+                 }
+                 if slicing:
+@@ -1563,6 +1566,10 @@ def main(args, job_state):
+                                     "capture": capture_H,
+                                     "capture_sens": capture_sens,
+                                     "activate_all_experts": model.calibration_all_experts,
++                                    # with every expert active the output is discarded (references
++                                    # are rerun with normal routing below), so block-sparse layers
++                                    # may skip computing it
++                                    "capture_only": model.calibration_all_experts,
+                                     "input_ids": original_input_ids[i],
+                                 }
+                                 if aff_store is not None:
+diff --git a/exllamav3/modules/block_sparse_mlp.py b/exllamav3/modules/block_sparse_mlp.py
+index 97a789ce..84ae03d4 100644
+--- a/exllamav3/modules/block_sparse_mlp.py
++++ b/exllamav3/modules/block_sparse_mlp.py
+@@ -1126,6 +1126,18 @@ class BlockSparseMLP(BlockSparseMLP_CPU, Module):
+             fhs_ext = torch.zeros((y.shape[0] + 1, y.shape[1]), dtype = torch.float, device = y.device)
+             final_hidden_states = fhs_ext[:y.shape[0]]
+ 
++            # Calibration capture with every expert active, output not needed (convert.py
++            # discards the capture pass's output and advances the state with the quantized
++            # layer): only the experts' input statistics matter. Every expert sees every row in
++            # order, so no gather; the down projection only needs its input captured, so no down
++            # matmul, no weighting and no scatter-add. The routed output stays zero
++            capture_fast = (
++                params.get("capture_only") and params.get("activate_all_experts") and "capture" in params and
++                self.gated and (self.num_local_experts is None or self.num_local_experts == self.num_experts)
++            )
++            if capture_fast:
++                self._capture_all_experts(y, routing_weights, sens_weights, aff, params)
++
+             # if self.routing_device is None or self.num_local_experts == self.num_experts:
+             #     expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes = self.num_local_experts)
+             # else:
+@@ -1134,7 +1146,7 @@ class BlockSparseMLP(BlockSparseMLP_CPU, Module):
+             #     shifted = torch.where(invalid, torch.zeros_like(selected_experts), selected_experts + 1)
+             #     expert_mask = F.one_hot(shifted, num_classes = self.num_local_experts + 1)[..., 1:]
+ 
+-            if self.num_local_experts is None or self.num_local_experts > 0:
++            if not capture_fast and (self.num_local_experts is None or self.num_local_experts > 0):
+ 
+                 num_ex = self.num_local_experts or self.num_experts
+ 
+@@ -1473,6 +1485,40 @@ class BlockSparseMLP(BlockSparseMLP_CPU, Module):
+         return final_hidden_states
+ 
+ 
++    def _capture_all_experts(self, y, routing_weights, sens_weights, aff, params):
++        """
++        Calibration capture with every expert active when the routed output is not needed: for
++        each expert the gate/up inputs (all rows, as they are) and the down input (the gated
++        activation) are captured exactly as the general path does, with the same per-row affinity
++        weights for the down Hessian and the same output-sensitivity capture, but without the
++        down matmul, the routing weighting and the scatter-add.
++        """
++        num_ex = self.num_local_experts or self.num_experts
++        x = y if y.dtype == torch.half else y.half()
++        weighted = aff is not None
++        for e in range(num_ex):
++            u = self.ups[e].forward(x, params)
++            g = self.gates[e].forward(x, params)
++            if sens_weights is not None:
++                sw = sens_weights[:, e]
++                routed = sw.nonzero().flatten()
++                if routed.numel():
++                    capture_out_sensitivity(
++                        params["capture_sens"], self.gates[e], self.ups[e], self.downs[e],
++                        g[routed], u[routed], self.activation_fn, self.act_limit, sw[routed]
++                    )
++            a = u if self.interm_dtype == torch.half else torch.empty_like(u, dtype = torch.half)
++            self.activation_fn_call(g, u, a, self.act_limit)
++            if a.shape[-1] < self.downs[e].in_features:
++                a = torch.nn.functional.pad(a, (0, self.downs[e].in_features - a.shape[-1]))
++            if weighted:
++                params["capture_row_w"] = routing_weights[:, e]
++            try:
++                self.downs[e].capture_H(a, params)
++            finally:
++                params.pop("capture_row_w", None)
++
++
+     @override
+     def get_tensors(self):
+         t = super().get_tensors()
+diff --git a/exllamav3/modules/linear.py b/exllamav3/modules/linear.py
+index 59cf19ce..959e5bb7 100644
+--- a/exllamav3/modules/linear.py
++++ b/exllamav3/modules/linear.py
+@@ -2,6 +2,8 @@ from __future__ import annotations
+ from functools import cached_property
+ from typing_extensions import override
+ import torch
++import os
++_CAPTURE_TF32 = os.environ.get("EXL3_CAPTURE_TF32", "0") != "0"   # opt-in: plain H changes ~1e-5
+ import numpy as np
+ from ..model.config import Config
+ from . import Module
+@@ -617,19 +619,29 @@ class Linear(Module):
+                 if row_w is not None:
+                     row_w = row_w[finite]
+ 
+-            params["capture"][self.qmap]["H"].addmm_(x.T, x)
+-            params["capture"][self.qmap]["count"] += rows
+-
+-            # Row-weighted Hessian alongside the plain one (affinity-weighted expert Hessians, see
+-            # conversion/moe_affinity.py), combined with it before quantization
+-            if row_w is not None:
+-                hd = params["capture"][self.qmap]
+-                if "H_aff" not in hd:
+-                    hd["H_aff"] = torch.zeros_like(hd["H"])
+-                    hd["aff_sum"] = torch.zeros((), dtype = torch.float, device = hd["H"].device)
+-                row_w = row_w.to(torch.float)
+-                hd["H_aff"].addmm_(x.T, x * row_w.unsqueeze(1))
+-                hd["aff_sum"] += row_w.sum()
++            # TF32 tensor cores: x comes from fp16 activations (10-bit mantissa), which TF32 holds
++            # exactly, and the accumulation stays fp32, so the plain Hessian is unchanged; the
++            # affinity-weighted one rounds x * w to TF32 (relative error ~2^-11 per product)
++            tf32 = _CAPTURE_TF32 and torch.backends.cuda.matmul.allow_tf32 is False
++            if tf32:
++                torch.backends.cuda.matmul.allow_tf32 = True
++            try:
++                params["capture"][self.qmap]["H"].addmm_(x.T, x)
++                params["capture"][self.qmap]["count"] += rows
++
++                # Row-weighted Hessian alongside the plain one (affinity-weighted expert Hessians, see
++                # conversion/moe_affinity.py), combined with it before quantization
++                if row_w is not None:
++                    hd = params["capture"][self.qmap]
++                    if "H_aff" not in hd:
++                        hd["H_aff"] = torch.zeros_like(hd["H"])
++                        hd["aff_sum"] = torch.zeros((), dtype = torch.float, device = hd["H"].device)
++                    row_w = row_w.to(torch.float)
++                    hd["H_aff"].addmm_(x.T, x * row_w.unsqueeze(1))
++                    hd["aff_sum"] += row_w.sum()
++            finally:
++                if tf32:
++                    torch.backends.cuda.matmul.allow_tf32 = False
+ 
+ 
+     @override
+-- 
+2.53.0
+
