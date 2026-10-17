@@ -92,12 +92,18 @@ def main(args):
         if not recs:
             print(f" !! {session}: no successful chat requests")
             continue
-        last = recs[-1]
-        req = last["request"]
-        reply = reassemble(last["response_raw"])
-        if not (reply["content"] or reply["reasoning_content"] or reply["tool_calls"]):
-            print(f" !! {session}: empty final response, skipped")
+        # the last request with a non-empty response: a session stopped at the context cap, or one
+        # whose harness ended on an empty turn, still has its full history in the previous request
+        for back, last in enumerate(reversed(recs)):
+            reply = reassemble(last["response_raw"])
+            if reply["content"] or reply["reasoning_content"] or reply["tool_calls"]:
+                break
+        else:
+            print(f" !! {session}: no non-empty response, skipped")
             continue
+        if back:
+            print(f"    {session}: last {back} response(s) empty, using the one before")
+        req = last["request"]
         msgs = normalize(req["messages"])
         tvars = {"preserve_thinking": True}
         tvars.update(req.get("chat_template_kwargs") or req.get("template_vars") or {})
