@@ -14,6 +14,9 @@ set -euo pipefail
 IMAGE=ghcr.io/local-inference-lab/vllm:release-10152026
 MODEL=nvidia/Qwen3.8-Flash-Next-FP4-Local
 MAX_SEQS=${MAX_SEQS:-32}
+# with MTP every decode step runs 1 + 3 draft tokens per sequence: 32 sequences need graphs up to 128
+# tokens; the model card's 64 sent batches above 16 sequences to eager mode (270 tok/s at 32 vs 545 at 8)
+MAX_CG=${MAX_CG:-256}
 cd /content
 echo "== $(date -u +%T) start"
 
@@ -72,9 +75,9 @@ exec vllm serve /content/model \
     --compilation-config '{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}' \
     --dtype bfloat16 --enable-auto-tool-choice --enable-chunked-prefill --no-enable-flashinfer-autotune \
     --enable-prefix-caching --enable-prompt-tokens-details --gdn-decode-kernel b12x \
-    --gpu-memory-utilization 0.975 --kv-cache-dtype fp8 --no-language-model-only --linear-backend b12x \
+    --gpu-memory-utilization 0.95 --kv-cache-dtype fp8 --no-language-model-only --linear-backend b12x \
     --load-format safetensors --mamba-cache-mode align --mamba-ssm-cache-dtype auto \
-    --max-cudagraph-capture-size 64 --max-model-len 262144 --max-num-batched-tokens 6019 \
+    --max-cudagraph-capture-size "$MAX_CG" --max-model-len 262144 --max-num-batched-tokens 6019 \
     --max-num-seqs "$MAX_SEQS" --mm-encoder-tp-mode data --mm-processor-cache-gb 0.0 --moe-backend b12x \
     --quantization modelopt_mixed --reasoning-parser qwen3 --tool-call-parser qwen3_xml \
     --speculative-config '{"method":"mtp","draft_sample_method":"probabilistic","rejection_sample_method":"standard","moe_backend":"b12x","num_speculative_tokens":3}'
@@ -93,7 +96,8 @@ mountpoint -q "$ROOT/sys" || mount --rbind /sys "$ROOT/sys"
 cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
 
 echo "== $(date -u +%T) starting vllm"
-REGEN_API_KEY="$REGEN_API_KEY" MAX_SEQS="$MAX_SEQS" setsid chroot "$ROOT" /bin/bash -c \
+pkill -f "[v]llm serve" || true; sleep 5
+REGEN_API_KEY="$REGEN_API_KEY" MAX_SEQS="$MAX_SEQS" MAX_CG="$MAX_CG" setsid chroot "$ROOT" /bin/bash -c \
     'while IFS= read -r l; do [ -n "$l" ] && export "$l"; done < /content/image.env; export HOME=/root; cd /workspace; exec bash /content/run_vllm.sh' \
     > /content/vllm.log 2>&1 < /dev/null &
 for i in $(seq 180); do

@@ -21,7 +21,11 @@ template. The logged request is what the server rendered, so build_rows.py can r
 exact token stream.
 
     python trace_proxy.py --upstream http://127.0.0.1:1337 --port 1338 --log_dir traces/
-    python trace_proxy.py --upstream http://127.0.0.1:18000 --vllm --api_key_env REGEN_API_KEY --log_dir traces/
+    python trace_proxy.py --upstream http://127.0.0.1:18000 --vllm --api_key_env REGEN_API_KEY \
+        --model nvidia/Qwen3.8-Flash-Next-FP4-Local --no_max_tokens --log_dir traces/
+
+--model replaces the harness's model id with the server's; --no_max_tokens drops the harness's
+max_tokens / max_completion_tokens, so no response is cut by a client-side length cap.
 """
 import argparse, asyncio, json, os, re, time
 from aiohttp import web, ClientError, ClientSession, ClientTimeout
@@ -89,6 +93,14 @@ async def handle(request):
         else:
             req_json.update(tvars)
         body = json.dumps(req_json).encode()
+    if isinstance(req_json, dict) and rest.rstrip("/").endswith("chat/completions") and \
+            (app["model"] or app["no_max_tokens"]):
+        if app["model"]:
+            req_json["model"] = app["model"]
+        if app["no_max_tokens"]:
+            req_json.pop("max_tokens", None)
+            req_json.pop("max_completion_tokens", None)
+        body = json.dumps(req_json).encode()
 
     # Harnesses (pi, codex) close the connection right after "data: [DONE]", before the chunked
     # terminator; that must neither lose the log record nor cut the upstream stream short
@@ -135,6 +147,8 @@ async def make_app(args):
     app["log_dir"] = args.log_dir
     app["api_key"] = None
     app["vllm"] = args.vllm
+    app["model"] = args.model
+    app["no_max_tokens"] = args.no_max_tokens
     if args.api_key_env:
         app["api_key"] = os.environ[args.api_key_env]
     elif args.api_key_file:
@@ -157,6 +171,8 @@ if __name__ == "__main__":
     ap.add_argument("--api_key_file", default = None, help = "tabbyAPI api_tokens.yml; its api_key replaces the client's")
     ap.add_argument("--api_key_env", default = None, help = "environment variable holding the server key, instead of --api_key_file")
     ap.add_argument("--vllm", action = "store_true", help = "pass the reasoning mode in chat_template_kwargs")
+    ap.add_argument("--model", default = None, help = "model id to send upstream instead of the harness's")
+    ap.add_argument("--no_max_tokens", action = "store_true", help = "drop max_tokens / max_completion_tokens")
     args = ap.parse_args()
     os.makedirs(args.log_dir, exist_ok = True)
     web.run_app(make_app(args), host = args.host, port = args.port, print = None)

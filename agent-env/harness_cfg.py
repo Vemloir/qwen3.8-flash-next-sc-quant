@@ -5,7 +5,7 @@ Each session gets a fresh HOME (copied from the harness's pristine template home
 as opencode's provider package are reused) with a config pointing at the trace proxy under the
 session's own path. Paths returned are host paths; the runner mounts them into the container.
 """
-import json, os, shutil
+import json, os, shutil, subprocess
 
 AGENT_ENV = os.path.dirname(os.path.abspath(__file__))
 MODEL = "flash-next"
@@ -28,6 +28,9 @@ def write_config(harness, home, base_url):
             "$schema": "https://opencode.ai/config.json",
             "autoupdate": False,
             "share": "disabled",
+            # non-interactive runs inside a throwaway container: nothing may stop on a permission prompt
+            "permission": {"edit": "allow", "bash": "allow", "webfetch": "allow",
+                           "external_directory": "allow", "doom_loop": "allow"},
             "model": f"local/{MODEL}",
             "provider": {"local": {
                 "npm": "@ai-sdk/openai-compatible", "name": "local",
@@ -59,7 +62,12 @@ def make_home(harness, session, base_url, root):
     """Fresh HOME for one session, seeded from <agent-env>/home-<harness> (caches, no secrets)."""
     home = os.path.join(root, session)
     if os.path.exists(home):
-        shutil.rmtree(home)
+        try:
+            shutil.rmtree(home)
+        except PermissionError:
+            # a previous attempt's container wrote root-owned files into this home
+            subprocess.run(["docker", "run", "--rm", "-v", f"{root}:/homes", "busybox", "rm", "-rf",
+                            f"/homes/{session}"], check = True, capture_output = True)
     seed = os.path.join(AGENT_ENV, f"home-{harness}")
     shutil.copytree(seed, home, symlinks = True) if os.path.isdir(seed) else os.makedirs(home)
     write_config(harness, home, base_url)

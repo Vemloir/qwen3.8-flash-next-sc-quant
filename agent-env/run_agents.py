@@ -174,6 +174,7 @@ def run_task(t, args, remaining_uses):
 
 
 def main(args):
+    args.runs = os.path.abspath(args.runs)      # docker -v treats a relative path as a volume name
     os.makedirs(os.path.join(args.runs, "harness_logs"), exist_ok = True)
     tasks = [t for t in json.load(open(args.tasks)) if args.split in (t["split"], "all")]
     done = set()
