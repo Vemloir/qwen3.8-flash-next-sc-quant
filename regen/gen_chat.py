@@ -5,7 +5,9 @@ mode) with the raw turns; rows are built and checked later (build_chat_rows.py, 
 
 Conversations: exllamav3 sc_trace.py's seed list, trace/extra_conversations.json (Russian and
 English, some multi-turn), regen/prompts_ru.json (Russian everyday, study and work topics, added
-because the first set had 28 Russian conversations of 207) and trace/music_prompts.json.
+because the first set had 28 Russian conversations of 207), trace/music_prompts.json and
+regen/prompts_science.json (biology, chemistry, physics, medicine, earth sciences in English and
+Russian: the other sources had about 20 natural-science conversations).
 
 History turns carry the previous answer only, without its reasoning, as chat front ends send it;
 the chat template then renders an empty think block for them (preserve_thinking default). A
@@ -31,6 +33,9 @@ def conversations():
     out += [{"source": "own", "turns": [seed] + list(fu)} for seed, fu in json.load(open(f"{Q}/trace/extra_conversations.json"))]
     out += [{"source": "own_ru", "turns": [seed] + list(fu)} for seed, fu in json.load(open(f"{Q}/regen/prompts_ru.json"))]
     out += [{"source": "music", "turns": [m["prompt"]]} for m in json.load(open(f"{Q}/trace/music_prompts.json"))]
+    # appended last, so earlier conversations keep their indices (records are keyed by them)
+    out += [{"source": "science", "turns": [seed] + list(fu)}
+            for seed, fu in json.load(open(f"{Q}/regen/prompts_science.json"))]
     for i, c in enumerate(out):
         c["conv"] = i
         c["lang"] = "ru" if has_cyrillic(c["turns"][0]) else "other"
