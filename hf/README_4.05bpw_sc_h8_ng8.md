@@ -5,6 +5,10 @@ license_link: LICENSE
 base_model: Qwen/Qwen3.8-Flash-Next
 base_model_relation: quantized
 pipeline_tag: image-text-to-text
+datasets:
+- Vemloir/Qwen3.8-Flash-Next-calib-agents
+- Vemloir/Qwen3.8-Flash-Next-calib-chat
+- Vemloir/Qwen3.8-Flash-Next-calib-multimodal
 tags:
 - exl3
 - exllamav3
@@ -18,7 +22,8 @@ EXL3 quant of [Qwen/Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flas
 checkpoint. Same model size in memory as turboderp's
 [4.05bpw_h6_ng6](https://huggingface.co/turboderp/Qwen3.8-Flash-Next-exl3/tree/4.05bpw_h6_ng6) (68.6 GB against
 68.4 GB; the n-gram table streamed from disk is 8-bit here, 13 GB more), measurably closer to BF16 on held-out data
-that played no part in calibration.
+that played no part in calibration. Code, calibration data and evaluation data are all public, so the quant can be
+reproduced end to end.
 
 | | |
 |---|---|
@@ -28,6 +33,19 @@ that played no part in calibration.
 | Converted with | exllamav3 1.6.1 + affinity-weighted expert Hessians (see below) |
 | Runs on | stock exllamav3 >= 1.6.1, TabbyAPI |
 | n-gram (PLE) table | 8 bpw, 52 GB, see below |
+
+## Open and reproducible
+
+Everything needed to rebuild this quant from the BF16 checkpoint is public:
+
+| | |
+|---|---|
+| Code (MIT) | [Vemloir/qwen3.8-flash-next-sc-quant](https://github.com/Vemloir/qwen3.8-flash-next-sc-quant): calibration data generation (chat, images, agent harnesses in Docker), quality checks, packing, bit allocation, conversion and evaluation scripts, exllamav3 1.6.1 patches |
+| Calibration data that went into this quant (ODbL-1.0) | 2.15M tokens: [agents](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-agents), [chat](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-chat), [multimodal](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-multimodal), each also as `cal_trace.safetensors` in exllamav3 `convert.py --cal_data` format |
+| All generated data (ODbL-1.0) | 5.0M tokens, a superset of the calibration data with the same quality checks: [Vemloir/Qwen3.8-Flash-Next-traces](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-traces) |
+| Evaluation (traces, per-token results) | [Vemloir/Qwen3.8-Flash-Next-evaluation](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-evaluation): the traces and the per-token results behind the numbers on this card |
+| Recipe | `recipe.yaml` (per-tensor bits) and `bit_allocation.md` in the [4.05bpw_sc_h8_ng8](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3/tree/4.05bpw_sc_h8_ng8) branch |
+| Toolchain | exllamav3 1.6.1 with patches 0001-0007 from the code repository (the quant itself runs on stock exllamav3 >= 1.6.1); conversion flags in `regen/a100_convert.sh` |
 
 ## Results
 

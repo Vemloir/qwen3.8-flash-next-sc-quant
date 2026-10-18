@@ -8,13 +8,19 @@ divergence) than turboderp's 4.05 bpw quant with the same model size in memory (
 is 8-bit here against 6-bit there). The current version is calibrated on set 2 (`regen/`, 2.15M tokens); the first
 one (set 1, ~1M tokens, the scripts below) is within noise of it.
 
+Everything is public, so the quant can be reproduced end to end:
+
+| | |
+|---|---|
+| Code (MIT) | this repository: data generation, quality checks, packing, bit allocation, conversion, evaluation, exllamav3 1.6.1 patches |
+| Calibration data that went into the quant (ODbL-1.0) | 2.15M tokens: [agents](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-agents), [chat](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-chat), [multimodal](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-multimodal) |
+| All generated data (ODbL-1.0) | 5.0M tokens, a superset with the same quality checks: [Vemloir/Qwen3.8-Flash-Next-traces](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-traces) |
+| Evaluation | [Vemloir/Qwen3.8-Flash-Next-evaluation](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-evaluation): traces and per-token results |
+| The quant | [Vemloir/Qwen3.8-Flash-Next-sc-exl3](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3), branch `4.05bpw_sc_h8_ng8`, with `recipe.yaml` |
+
 - [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md): what was measured and decided, with numbers
 - [docs/CALIBRATION.md](docs/CALIBRATION.md): how the calibration data was built and why
 - [docs/bit_allocation.md](docs/bit_allocation.md): bits per layer and tensor group ([image](docs/bit_allocation.png))
-- Data on Hugging Face: calibration ([agents](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-agents),
-  [chat](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-chat),
-  [multimodal](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-calib-multimodal); ODbL-1.0) and
-  [evaluation](https://huggingface.co/datasets/Vemloir/Qwen3.8-Flash-Next-evaluation)
 
 ![Bit allocation](docs/bit_allocation.png)
 
