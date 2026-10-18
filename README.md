@@ -27,14 +27,27 @@ Everything is public, so the quant can be reproduced end to end:
 ## Requirements
 
 - exllamav3 1.6.1 with the patches in `patches/exllamav3-1.6.1/` (`git am`): image rows in calibration, low-disk
-  conversion, chunked calibration rows, affinity-weighted expert Hessians, qbench extensions, a `sc_measure` fix.
-  The quant itself runs on stock exllamav3 >= 1.6.1.
+  conversion, chunked calibration rows, affinity-weighted expert Hessians, a capture-only fast path for MoE layers,
+  qbench extensions, a `sc_measure` fix. The quant itself runs on stock exllamav3 >= 1.6.1.
 - TabbyAPI serving the model for trace generation; Docker for the agent harnesses; headless Chromium for the
   frontend screenshots.
 - The BF16 checkpoint (~340 GB) and ~110 GB of free disk for the conversion.
 
 Scripts assume this layout under `~/lm-inference`: `models/Qwen3.8-Flash-Next/{BF16,...}`, `sc-quant/` (this
 repository), `exllamav3-1.6.1-sc/` (patched exllamav3), `tabbyAPI/`, `datasets/MiMo-V2.6-RL-oss/`.
+
+## Upstream
+
+The conversion changes that matter beyond this model are offered to exllamav3:
+
+| Change | Patch here | Upstream |
+|---|---|---|
+| Affinity-weighted expert Hessians (`--moe_affinity_eps`) and a capture-only fast path for MoE layers (1.5-1.6x faster capture, bit-identical Hessians) | 0003, 0007 | [#529](https://github.com/turboderp-org/exllamav3/pull/529), open |
+| `sc_measure`: pass each row's `input_ids` to every forward (PLE layers) | 0004 | [#518](https://github.com/turboderp-org/exllamav3/pull/518), merged |
+| MoE CPU offload: bounded host memory while loading the expert arena | (1.5.3) | [#429](https://github.com/turboderp-org/exllamav3/pull/429), merged |
+
+The PR version of 0007 leaves out the opt-in TF32 Hessian accumulation (`EXL3_CAPTURE_TF32`), which the
+published quant was converted with.
 
 ## Reproducing
 

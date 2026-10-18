@@ -140,7 +140,9 @@ Conversion: same recipe and flags as the published quant, only the calibration c
 hyper-connection expansion ran out of RAM (2.15M tokens need ~85 GB of state); on an A100 80 GB a layer took
 ~1,300-1,400 s, bound by FP32 expert quantization; on the G4 ~560-635 s, then ~460-560 s with patch 0007 (a
 capture-only fast path for block-sparse layers, x1.6 on the capture pass, bitwise identical Hessians). Checkpoints
-(88 GB of state at ~70 MB/s) cost ~17-38 minutes each and were cut to one per 6 hours.
+(88 GB of state at ~70 MB/s) cost ~17-38 minutes each and were cut to one per 6 hours. The published quant was converted
+with layers 0-5 on the plain capture path and layers 6-47 with patch 0007 and `EXL3_CAPTURE_TF32=1` (resumed from
+the layer 5 checkpoint); exact reproduction needs the same split (`CPI=21600 EXL3_CAPTURE_TF32=1` after layer 5).
 
 | Trace | Set 2 | Set 1 | turboderp 4.05 | Set 2 vs set 1 | Set 2 vs turboderp |
 |---|---|---|---|---|---|
