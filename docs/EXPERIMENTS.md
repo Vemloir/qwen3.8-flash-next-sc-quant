@@ -124,3 +124,29 @@ the reference at once (calibration, bit allocation, Hessians, head, exllamav3 ve
 attributed to any one of them. qbench needed two changes for these traces (patch 0005): `crop_logits` (the head
 only sees positions from the first scored token on; a 16k-token agent row would otherwise need 8 GB of logits) and
 dropping a redundant device copy of each row's state.
+
+## 10. Calibration set 2
+
+Set 1 had defects found by reading it: reasoning cut off at the 3,072-token per-turn cap, a few loops (IPv6, chess,
+ABC notation), history turns holding English reasoning instead of the answer, a Spanish answer with calls to
+non-existent tools, agent sessions from only 7 tasks truncated at 25k tokens. Set 2 regenerates everything
+(`regen/`): NVIDIA's FP4-Local checkpoint in vLLM on a Colab G4, no output length cap, 40 fresh MiMo tasks for the
+agents, science prompts in 16 languages, `qa.py` checks. 5.0M tokens generated, 2.15M packed (17 whole agent sessions
+up to 201k tokens, 222 chats, 105 images; 25% Russian; xhigh/medium/low/off 40/20/16/24%).
+
+Conversion: same recipe and flags as the published quant, only the calibration changed. On an A100 40 GB the
+hyper-connection expansion ran out of RAM (2.15M tokens need ~85 GB of state); on an A100 80 GB a layer took
+~1,300-1,400 s, bound by FP32 expert quantization; on the G4 ~560-635 s, then ~460-560 s with patch 0007 (a
+capture-only fast path for block-sparse layers, x1.6 on the capture pass, bitwise identical Hessians). Checkpoints
+(88 GB of state at ~70 MB/s) cost ~17-38 minutes each and were cut to one per 6 hours.
+
+| Trace | Set 2 | Set 1 | turboderp 4.05 | Set 2 vs set 1 | Set 2 vs turboderp |
+|---|---|---|---|---|---|
+| Nemotron, 48 rows | 0.00782 | 0.00796 | 0.00909 | -1.8% [-9.6%, +6.8%], 23/48 rows | -14.0% [-21.6%, -5.7%], 38/48 rows |
+| Multilingual, 52 rows | 0.00543 | 0.00544 | 0.00655 | -0.3% [-4.6%, +4.6%], 29/52 rows | -17.2% [-25.5%, -9.5%], 42/52 rows |
+
+The two calibration sets give the same quality within noise on these traces: the defects of set 1 were a small share
+of its tokens, and at a fixed bit budget the Hessians barely moved. Per source the picture shifted somewhat (multi-turn
+instruction following went from -0.4% to +13.4% against turboderp, French from -9.9% to -28.6%), all within the wide
+per-source intervals. The traces reach 16k tokens at most, so the long agent sessions of set 2 are not tested by
+them. Set 2 is published anyway: same quality, clean calibration data that matches the published datasets.

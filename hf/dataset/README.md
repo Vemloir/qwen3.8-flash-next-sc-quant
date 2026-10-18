@@ -27,22 +27,29 @@ qbench `test_trace` files (`rows` with `input_ids`, `response_ids`, optional `sc
 |---|---|---|
 | `nemotron_trace.json` | 48 conversations from NVIDIA's Nemotron 3.5 Super post-training data (Nemotron-SFT-Agentic-v4, Nemotron-SFT-SWE-v3.5, Nemotron-SFT-Instruction-Following-Chat-v4, Nemotron-Math-Proofs-v3-SFT), teacher-forced, scored on assistant turns | none |
 | `multilingual_trace.json` | 16 Russian conversations (RefalMachine/GrandMaster-PRO-MAX-Qwen3-synthetic) and 36 in de, es, fr, it, zh, ja, ko, pt, hi (nvidia/Nemotron-SFT-Multilingual-v1/v2, translated answers only) | none |
-| `heldout_trace.json` | held-out rows of the calibration pool (chat and agent steps not used for calibration) | same source pool |
-| `agent_trace.json` | held-out agent sessions (same task pool) | same source pool |
+| `heldout_trace.json` | held-out rows of the calibration set 1 pool (chat and agent steps not used for calibration) | same source pool |
+| `agent_trace.json` | held-out agent sessions of calibration set 1 (same task pool) | same source pool |
 | `qbench_prompts_turboderp.json` | turboderp's qbench trace for this model | none |
 
 The two independent traces are built by `nemotron_eval_trace.py` and `multilingual_eval_trace.py` (sampled with HTTP
 range requests from the source datasets, rendered with the model's chat template).
 
+`heldout_trace.json` and `agent_trace.json` come from calibration set 1 and share its defects (reasoning cut off at
+3,072 tokens, a few looping answers, agent sessions truncated at 25k tokens). They are kept because the first
+results were measured on them; they are evaluation data, not intended for training.
+
 ## results/
 
-- `qb_nemotron_results.json`, `qb_multilingual_results.json` and plots: qbench against BF16 for this quant and
-  turboderp's 4.05 bpw.
+- `qb_nemotron_sc2_results.json`, `qb_multilingual_sc2_results.json` and plots: qbench against BF16 for the current
+  version of the quant (calibration set 2, 2026-10-18) and the previous one (set 1).
+- `qb_nemotron_results.json`, `qb_multilingual_results.json` and plots: qbench against BF16 for the previous version
+  and turboderp's 4.05 bpw (same traces, same cached BF16 reference).
 - `per_token_kld.safetensors`: per-token KL divergence on every scored token of both independent traces
-  (`nemotron.sc_4.05`, `nemotron.turboderp_4.05`, `multilingual.sc_4.05`, `multilingual.turboderp_4.05`), in
-  trace order; the source of the histograms in the model card.
-- `kld_by_source.json`: mean KL divergence per source/language, relative difference and 95% paired-bootstrap
-  intervals over rows.
+  (`<trace>.sc_4.05` current version, `<trace>.sc_4.05_prev` previous version, `<trace>.turboderp_4.05`), in trace
+  order; the source of the histograms in the model card.
+- `kld_by_source.json`: mean KL divergence per source/language, relative difference against turboderp's 4.05
+  (`rel_diff`, `ci95`) and against the previous version (`rel_diff_vs_prev`, `ci95_vs_prev`), 95% paired-bootstrap
+  intervals over rows. Built from the qbench cache by `tools/kld_results.py` in the code repository.
 - `split_grid.json`: per layer, the routed experts' output error (relative to the BF16 experts, on held-out tokens)
   for every gate/up/down bit combination of {2, 2.5, 3, 3.5, 4, 5, 6}, with affinity-weighted Hessians; the basis
   of the expert bit split.

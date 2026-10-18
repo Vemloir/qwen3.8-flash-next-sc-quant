@@ -43,6 +43,26 @@ Every generator is resumable (records are appended per finished job; a rerun ski
 | `qa.py` | reject / review verdicts per record |
 | `mock_vllm.py` | stand-in server for testing the clients |
 
+## From records to the published quant
+
+```sh
+python regen/build_chat_rows.py  --chat regen/out/chat_final.jsonl --qa regen/out/qa.json --tokenizer <model> \
+    --reject <keys> -o regen/out/chat_rows.json
+python regen/build_image_rows.py ...                                  # image rows with their vision embeddings
+python agent-env/build_rows.py ...                                    # agent sessions -> regen/out/agent_rows.json
+python regen/pack.py --budget 2150000 --agent_share 0.5 --force agent:r2-018-cyber-pi-eff_off   # -> calib_v3/
+
+# conversion on a Colab G4 (176 GB RAM; 2.15M tokens take ~85 GB of state plus 52 GB for the n-gram table),
+# BF16 read from Google Drive (drive_bf16.py put it there), patch 0007 for the capture pass, one checkpoint per 6 h
+CPI=21600 EXL3_CAPTURE_TF32=1 bash regen/a100_convert.sh               # on the VM; copies the quant to Drive
+
+# publishing from Drive on a Colab CPU VM (the Hub link there is much faster than a home uplink)
+python regen/drive_to_hf.py --src <Drive dir> --repo <repo> --revision <branch> --files "model-*.safetensors,..."
+```
+
+All generated records: 5.0M tokens (40 agent sessions 2.0M, 700 chats 2.7M, 105 images 0.3M), of which the packer
+takes 2.15M. Conversion on the G4: ~8-10 min per layer, ~8 h in total.
+
 No generation length cap is set anywhere: a response ends on its own, at the 262k context limit, or when a
 runaway loop is detected (the same 200-character block 20 times in a well-compressing tail; such records are kept
 for inspection and never become rows).

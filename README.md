@@ -3,8 +3,10 @@
 Code, recipe and notes behind the self-calibrated EXL3 4.05 bpw quant of
 [Qwen/Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next):
 [Vemloir/Qwen3.8-Flash-Next-sc-exl3](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3) (branch
-`4.05bpw_sc_h8_ng8`). On two evaluation traces with no overlap with calibration it is 12.4% and 16.9% closer to BF16 (KL
-divergence) than turboderp's 4.05 bpw quant of the same size.
+`4.05bpw_sc_h8_ng8`). On two evaluation traces with no overlap with calibration it is 14.0% and 17.2% closer to BF16 (KL
+divergence) than turboderp's 4.05 bpw quant with the same model size in memory (the n-gram table, streamed from disk,
+is 8-bit here against 6-bit there). The current version is calibrated on set 2 (`regen/`, 2.15M tokens); the first
+one (set 1, ~1M tokens, the scripts below) is within noise of it.
 
 - [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md): what was measured and decided, with numbers
 - [docs/CALIBRATION.md](docs/CALIBRATION.md): how the calibration data was built and why
@@ -46,7 +48,12 @@ repository), `exllamav3-1.6.1-sc/` (patched exllamav3), `tabbyAPI/`, `datasets/M
 6. **Conversion**: `convert_v3.sh` (BF16 source, recipe, calibration, `--moe_affinity_eps 0.1`, low-disk mode,
    checkpoints every 30 minutes; ~8 hours on an RTX 5070 Ti with 61 GB of RAM).
 7. **Evaluation**: `nemotron_eval_trace.py` and `multilingual_eval_trace.py` build the independent traces;
-   `eval/qbench_nemotron.yaml` and `eval/qbench_multilingual.yaml` run exllamav3 qbench against BF16.
+   `eval/qbench_nemotron.yaml` and `eval/qbench_multilingual.yaml` run exllamav3 qbench against BF16;
+   `tools/kld_results.py` turns the qbench cache into per-source results with bootstrap intervals and
+   `tools/readme_charts.py` draws the model card charts.
+
+Calibration set 2 (the current version) is generated, packed and converted with the scripts in `regen/`; see
+[regen/README.md](regen/README.md).
 
 Experiment tools in `tools/`: `moe_hessian_test.py` (affinity Hessian prototype), `layer_sens.py`, `head_bits_test.py`,
 and others. The `night_*.sh` and `*_chain.sh` scripts are the job chains actually run during development; they

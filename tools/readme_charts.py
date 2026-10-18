@@ -82,7 +82,7 @@ def by_source(res, out, plt):
         for t, k in zip(ax.get_yticklabels(), keys):
             if k == "all":
                 t.set_fontweight("bold")
-        ax.set_xlim(lo_all - 9, max(hi_all, 0) + 3)
+        ax.set_xlim(lo_all - 13, max(hi_all, 0) + 3)   # room for the value label left of the widest interval
         ax.xaxis.grid(True, color = GRID, linewidth = 0.6)
         ax.set_axisbelow(True)
         ax.set_xlabel("KL divergence vs turboderp 4.05 bpw (%)", fontsize = 8, color = INK2)
