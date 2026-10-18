@@ -19,6 +19,8 @@ models:
     engine: exllamav3
     source: ~/lm-inference/models/Qwen3.8-Flash-Next/BF16
 
+  # local copy deleted on 2026-10-18; to rerun, download revision 524a19ebbbd653cd8cf31b766a56e7183133d7a0 of
+  # Vemloir/Qwen3.8-Flash-Next-sc-exl3 (branch 4.05bpw_sc_h8_ng8) to this path
   - label: SC 4.05 v3 (ours)
     group: SC v3
     engine: exllamav3

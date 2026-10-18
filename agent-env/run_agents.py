@@ -18,7 +18,7 @@ sys.path.insert(0, HERE)
 import harness_cfg as H
 
 MIMO = os.path.expanduser("~/lm-inference/datasets/MiMo-V2.6-RL-oss/general")
-TOKENIZER = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.05-v3")
+TOKENIZER = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC2-EXL3-4.05")
 LOCK = threading.Lock()
 PULLED = {}
 

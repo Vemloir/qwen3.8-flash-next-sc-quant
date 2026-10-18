@@ -174,7 +174,7 @@ def main(args):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required = True)
-    ap.add_argument("--tokenizer", default = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC-EXL3-4.05-v3"))
+    ap.add_argument("--tokenizer", default = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC2-EXL3-4.05"))
     ap.add_argument("--budget", type = int, default = 2_000_000)
     ap.add_argument("--agent_share", type = float, default = 0.45)
     ap.add_argument("--agent_mode_max", type = float, default = 0.6, help = "max agent share of one mode's budget")
