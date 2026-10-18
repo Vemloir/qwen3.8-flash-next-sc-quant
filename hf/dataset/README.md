@@ -44,12 +44,15 @@ results were measured on them; they are evaluation data, not intended for traini
   version of the quant (calibration set 2, 2026-10-18) and the previous one (set 1).
 - `qb_nemotron_results.json`, `qb_multilingual_results.json` and plots: qbench against BF16 for the previous version
   and turboderp's 4.05 bpw (same traces, same cached BF16 reference).
-- `per_token_kld.safetensors`: per-token KL divergence on every scored token of both independent traces
+- `per_token_kld.safetensors`: per-token KL divergence on the scored tokens of both independent traces, without the
+  positions the chat template writes itself (`<think>\n`, or the empty think block with reasoning off)
   (`<trace>.sc_4.05` current version, `<trace>.sc_4.05_prev` previous version, `<trace>.turboderp_4.05`), in trace
   order; the source of the histograms in the model card.
 - `kld_by_source.json`: mean KL divergence per source/language, relative difference against turboderp's 4.05
   (`rel_diff`, `ci95`) and against the previous version (`rel_diff_vs_prev`, `ci95_vs_prev`), 95% paired-bootstrap
-  intervals over rows. Built from the qbench cache by `tools/kld_results.py` in the code repository.
+  intervals over rows, without the template-written positions (their count is in `excluded_template_tokens`). Built
+  from the qbench cache by `tools/kld_results.py` in the code repository; `--keep_template_tokens` scores every
+  position, as plain qbench does.
 - `split_grid.json`: per layer, the routed experts' output error (relative to the BF16 experts, on held-out tokens)
   for every gate/up/down bit combination of {2, 2.5, 3, 3.5, 4, 5, 6}, with affinity-weighted Hessians; the basis
   of the expert bit split.

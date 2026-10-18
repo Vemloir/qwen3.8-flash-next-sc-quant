@@ -118,6 +118,8 @@ over rows (`nemotron_eval_trace.py`, `multilingual_eval_trace.py`):
 | Nemotron 3.5 Super post-training conversations (agents, SWE, chat, instruction following, math proofs), 48 rows | 0.00796 | 0.00909 | -12.4% [-18.6%, -6.2%], 38/48 rows |
 | Multilingual (16 Russian, 36 in 9 other languages), 52 rows | 0.00544 | 0.00655 | -16.9% [-24.6%, -10.1%], 41/52 rows |
 
+These are plain qbench numbers, with the positions the chat template writes counted in; section 10 leaves those out.
+
 Per source: math proofs -30%, SWE -18%, knowledge agent -15%, chat -13%, tool calling -7%, multi-turn instruction
 following 0%; Russian -21%, Korean/Portuguese/Hindi -19 to -27%, Japanese/Spanish -1%. Several things differ from
 the reference at once (calibration, bit allocation, Hessians, head, exllamav3 version), so the gain is not
@@ -142,11 +144,18 @@ capture-only fast path for block-sparse layers, x1.6 on the capture pass, bitwis
 
 | Trace | Set 2 | Set 1 | turboderp 4.05 | Set 2 vs set 1 | Set 2 vs turboderp |
 |---|---|---|---|---|---|
-| Nemotron, 48 rows | 0.00782 | 0.00796 | 0.00909 | -1.8% [-9.6%, +6.8%], 23/48 rows | -14.0% [-21.6%, -5.7%], 38/48 rows |
-| Multilingual, 52 rows | 0.00543 | 0.00544 | 0.00655 | -0.3% [-4.6%, +4.6%], 29/52 rows | -17.2% [-25.5%, -9.5%], 42/52 rows |
+| Nemotron, 48 rows | 0.00767 | 0.00788 | 0.00903 | -2.6% [-10.1%, +5.7%], 23/48 rows | -15.1% [-22.4%, -7.3%], 39/48 rows |
+| Multilingual, 52 rows | 0.00543 | 0.00545 | 0.00656 | -0.3% [-4.6%, +4.6%], 29/52 rows | -17.2% [-25.5%, -9.5%], 42/52 rows |
 
 The two calibration sets give the same quality within noise on these traces: the defects of set 1 were a small share
-of its tokens, and at a fixed bit budget the Hessians barely moved. Per source the picture shifted somewhat (multi-turn
-instruction following went from -0.4% to +13.4% against turboderp, French from -9.9% to -28.6%), all within the wide
-per-source intervals. The traces reach 16k tokens at most, so the long agent sessions of set 2 are not tested by
-them. Set 2 is published anyway: same quality, clean calibration data that matches the published datasets.
+of its tokens, and at a fixed bit budget the Hessians barely moved. Per source the picture shifted somewhat
+(French from -9.9% to -28.6% against turboderp, Italian from -14.2% to +6.0% on the strength of one row), all within
+the wide per-source intervals. The traces reach 16k tokens at most, so the long agent sessions of set 2 are not
+tested by them. Set 2 is published anyway: same quality, clean calibration data that matches the published datasets.
+
+The numbers above leave out the positions the chat template writes itself (`<think>\n`, or the empty think block
+with reasoning off): 166 of 22,976 scored tokens on the Nemotron trace, 32 of 25,574 on the multilingual one. With
+them, as plain qbench scores, multi-turn instruction following came out +13.4% against turboderp, almost all of it
+one such token in one row (the newline after `<think>`, KL 2.43); our quants are less sure of these tokens than
+turboderp's (4.6 against 2.8 summed KL on the Nemotron trace), which does not matter when the template writes them.
+Plain qbench gives -14.0% and -17.2% against turboderp; `tools/kld_results.py --keep_template_tokens` reproduces it.

@@ -50,28 +50,28 @@ Everything needed to rebuild this quant from the BF16 checkpoint is public:
 ## Results
 
 KL divergence of the output distribution against BF16 (lower is better), teacher-forced on assistant turns, 95%
-intervals from a paired bootstrap over rows. Neither trace overlaps the calibration data.
+intervals from a paired bootstrap over rows. Neither trace overlaps the calibration data. Positions the chat template writes itself (`<think>\n`, or `<think>\n\n</think>\n\n` with reasoning off: 166 of 23k scored tokens on the Nemotron trace, 32 of 26k on the multilingual one) are left out for all quants: the model never generates them in real use, while a teacher-forced trace scores them as part of the answer.
 
 **NVIDIA Nemotron 3.5 Super post-training conversations** (48 rows, 23k scored tokens; assistant turns written by
 Qwen3.5-397B / GLM-5.2 / Kimi-K2.6):
 
 | Source | This quant | turboderp 4.05 | Difference |
 |---|---|---|---|
-| Agentic tool calling | 0.01014 | 0.01145 | -11.4% |
-| Knowledge-base support agent | 0.00910 | 0.01191 | -23.6% |
-| SWE (OpenCode trajectories) | 0.01120 | 0.01343 | -16.6% |
-| Chat | 0.00575 | 0.00701 | -18.0% |
-| Multi-turn instruction following | 0.00705 | 0.00621 | +13.4% |
-| Math proofs | 0.00215 | 0.00301 | -28.3% |
-| **All** | **0.00782** | **0.00909** | **-14.0% [-21.6%, -5.7%]**, lower on 38/48 rows |
+| Agentic tool calling | 0.01019 | 0.01141 | -10.7% |
+| Knowledge-base support agent | 0.00908 | 0.01199 | -24.3% |
+| SWE (OpenCode trajectories) | 0.01096 | 0.01307 | -16.1% |
+| Chat | 0.00573 | 0.00703 | -18.5% |
+| Multi-turn instruction following | 0.00644 | 0.00623 | +3.4% |
+| Math proofs | 0.00216 | 0.00302 | -28.3% |
+| **All** | **0.00767** | **0.00903** | **-15.1% [-22.4%, -7.3%]**, lower on 39/48 rows |
 
 **Multilingual** (52 rows, 26k scored tokens: Russian GrandMaster prompts with Qwen3-235B answers; 9 more languages
 from Nemotron-SFT-Multilingual, translated answers):
 
 | | This quant | turboderp 4.05 | Difference |
 |---|---|---|---|
-| Russian (16 rows) | 0.00742 | 0.00964 | -23.1% [-36.5%, -9.3%] |
-| **All** | **0.00543** | **0.00655** | **-17.2% [-25.5%, -9.5%]**, lower on 42/52 rows |
+| Russian (16 rows) | 0.00745 | 0.00968 | -23.1% [-36.5%, -9.3%] |
+| **All** | **0.00543** | **0.00656** | **-17.2% [-25.5%, -9.5%]**, lower on 42/52 rows |
 
 Per language, the per-source chart and the previous version: see the [model card](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3).
 
@@ -80,14 +80,15 @@ Caveats:
   in both), and the n-gram table 8-bit against 6-bit. Part of the gain comes from them.
 - Several things differ from the reference quant at once (calibration data, bit allocation, expert Hessians, head,
   n-gram table, exllamav3 version), so the gain is not attributed to any one of them.
-- Multi-turn instruction following is worse than the reference (+13.4%, the interval crosses zero).
+- Multi-turn instruction following (+3.4%) and Italian (+6.0%, 4 rows) are slightly worse than the reference; both
+  intervals cross zero.
 - Teacher-forced text, not the model's own samples; only 4 rows per language outside Russian.
 - Perplexity on the multilingual text is 2.3385 here against 2.3443 for turboderp 4.05 (BF16: 2.3420); on the
   Nemotron trace 1.9275 against 1.9316 (BF16: 1.9285).
 
 The previous version of this branch (calibration set 1, 2026-10-16) is revision
 `524a19ebbbd653cd8cf31b766a56e7183133d7a0`; this one differs only in calibration data and is within noise of it
-(-1.8% [-9.6%, +6.8%] Nemotron, -0.3% [-4.6%, +4.6%] multilingual).
+(-2.6% [-10.1%, +5.7%] Nemotron, -0.3% [-4.6%, +4.6%] multilingual).
 
 ## How it was made
 

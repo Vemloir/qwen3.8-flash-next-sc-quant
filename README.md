@@ -3,7 +3,7 @@
 Code, recipe and notes behind the self-calibrated EXL3 4.05 bpw quant of
 [Qwen/Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next):
 [Vemloir/Qwen3.8-Flash-Next-sc-exl3](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3) (branch
-`4.05bpw_sc_h8_ng8`). On two evaluation traces with no overlap with calibration it is 14.0% and 17.2% closer to BF16 (KL
+`4.05bpw_sc_h8_ng8`). On two evaluation traces with no overlap with calibration it is 15.1% and 17.2% closer to BF16 (KL
 divergence) than turboderp's 4.05 bpw quant with the same model size in memory (the n-gram table, streamed from disk,
 is 8-bit here against 6-bit there). The current version is calibrated on set 2 (`regen/`, 2.15M tokens); the first
 one (set 1, ~1M tokens, the scripts below) is within noise of it.
