@@ -42,7 +42,7 @@ The conversion changes that matter beyond this model are offered to exllamav3:
 
 | Change | Patch here | Upstream |
 |---|---|---|
-| Affinity-weighted expert Hessians (`--moe_affinity_eps`) and a capture-only fast path for MoE layers (1.5-1.6x faster capture, bit-identical Hessians) | 0003, 0007 | [#529](https://github.com/turboderp-org/exllamav3/pull/529), open |
+| Affinity-weighted expert Hessians (`--moe_affinity_eps`; -3.6% KL divergence [-6.2%, -0.8%] in an isolated ablation on Gemma 4 26B A4B, ~40% longer conversion, [EXPERIMENTS.md section 11](docs/EXPERIMENTS.md#11-ablation-of-the-expert-hessian-scheme-exllamav3-pr-529)) and a capture-only fast path for MoE layers (1.5-1.6x faster capture, bit-identical Hessians) | 0003, 0007 | [#529](https://github.com/turboderp-org/exllamav3/pull/529), open |
 | `sc_measure`: pass each row's `input_ids` to every forward (PLE layers) | 0004 | [#518](https://github.com/turboderp-org/exllamav3/pull/518), merged |
 | MoE CPU offload: bounded host memory while loading the expert arena | (1.5.3) | [#429](https://github.com/turboderp-org/exllamav3/pull/429), merged |
 

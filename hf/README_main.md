@@ -108,7 +108,9 @@ Raw numbers: `results/kld_by_source.json` in the
 Caveats: the head is 8 bpw here against 6 in turboderp's quant (+~150 MB, outside the bits-per-weight budget in
 both), and the n-gram table 8-bit against 6-bit; part of the gain comes from them. Calibration data, bit allocation,
 expert Hessians, head, n-gram table and exllamav3 version all differ from the reference at once, so the gain is not
-attributed to any one of them. Two sources are slightly worse than the reference, multi-turn instruction following
+attributed to any one of them. turboderp's quant was converted with exllamav3 1.4.4; later versions added post-LDLQ
+refit, LDLQ drift compensation and other converter improvements, so part of the gain comes from the newer converter.
+The affinity-weighted Hessians alone gave 3.6% in an isolated test (see below). Two sources are slightly worse than the reference, multi-turn instruction following
 (+3.4%) and Italian (+6.0%, one of four rows); both intervals cross zero. Outside Russian there are only 4 rows per language; the per-language numbers are
 indicative.
 
@@ -138,7 +140,9 @@ and gave -12.4% and -16.9% against turboderp for set 1.) The previous version st
   gate/up (3/3/5 in layer 0, 3.5/3.5/5 in 1-7 and 9), elsewhere 4/4/4; chosen from the expert output error of every
   2-6 bit combination per layer.
 - **Affinity-weighted expert Hessians**: each of the 512 experts per layer is quantized against its own Hessian,
-  tokens weighted by the expert's router probability, instead of one Hessian shared by all of them.
+  tokens weighted by the expert's router probability, instead of one Hessian shared by all of them. In an isolated ablation (Gemma 4 26B A4B, 3.0 bpw, everything else identical) this alone lowered KL divergence
+  from BF16 by 3.6% [-6.2%, -0.8%], for ~40% longer conversion; details in
+  [EXPERIMENTS.md](https://github.com/Vemloir/qwen3.8-flash-next-sc-quant/blob/main/docs/EXPERIMENTS.md).
 - **Dense tensors**: shared experts, attention k/v and the sparse-attention indexer at 8 bpw, GDN out_proj at 7,
   other dense layers at 6; output head and vision tower at 8.
 

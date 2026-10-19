@@ -79,7 +79,9 @@ Caveats:
 - The head is 8 bpw here against 6 in turboderp's quant (+~150 MB; the head is outside the bits-per-weight budget
   in both), and the n-gram table 8-bit against 6-bit. Part of the gain comes from them.
 - Several things differ from the reference quant at once (calibration data, bit allocation, expert Hessians, head,
-  n-gram table, exllamav3 version), so the gain is not attributed to any one of them.
+  n-gram table, exllamav3 version), so the gain is not attributed to any one of them. turboderp's quant was converted
+  with exllamav3 1.4.4, before post-LDLQ refit, LDLQ drift compensation and other converter improvements; the
+  affinity-weighted Hessians alone gave 3.6% in an isolated test (see below).
 - Multi-turn instruction following (+3.4%) and Italian (+6.0%, 4 rows) are slightly worse than the reference; both
   intervals cross zero.
 - Teacher-forced text, not the model's own samples; only 4 rows per language outside Russian.
@@ -111,7 +113,9 @@ allocation map are also in this branch (`recipe.yaml`, `bit_allocation.png`, `bi
   and the sparse-attention indexer are 8 bpw, GDN out_proj 7, other dense layers 6.
 - **Affinity-weighted expert Hessians**: each expert is quantized against its own Hessian with calibration tokens
   weighted by `0.1 + p / mean(p)`, `p` the expert's router probability, instead of one unweighted Hessian shared by
-  all 512 experts of a layer.
+  all 512 experts of a layer. In an isolated ablation (Gemma 4 26B A4B, 3.0 bpw, everything else identical) this alone lowered KL divergence
+  from BF16 by 3.6% [-6.2%, -0.8%], for ~40% longer conversion; details in
+  [EXPERIMENTS.md](https://github.com/Vemloir/qwen3.8-flash-next-sc-quant/blob/main/docs/EXPERIMENTS.md).
 
 ## n-gram table
 
