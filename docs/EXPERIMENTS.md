@@ -161,3 +161,23 @@ them, as plain qbench scores, multi-turn instruction following came out +13.4% a
 one such token in one row (the newline after `<think>`, KL 2.43); our quants are less sure of these tokens than
 turboderp's (4.6 against 2.8 summed KL on the Nemotron trace), which does not matter when the template writes them.
 Plain qbench gives -14.0% and -17.2% against turboderp; `tools/kld_results.py --keep_template_tokens` reproduces it.
+
+## 11. Ablation of the expert Hessian scheme (exllamav3 PR #529)
+
+Asked for in review: the published comparison changes too much at once (turboderp's 4.05 bpw quant was made with
+exllamav3 1.4.4, before post-LDLQ refit, LDLQ drift compensation and other converter changes), so affinity-weighted
+Hessians were tested in isolation. Gemma 4 26B A4B (128 experts, top-8), current dev plus the PR, 3.0 bpw with `-hq`,
+built-in calibration (250 x 2048), only the expert Hessian scheme varying; KL divergence against BF16 on 30 x 2048
+tokens of openwebtext10k framed with the chat template (BOS), 95% paired bootstrap over rows. Run on a Colab G4.
+
+| Variant | KLD | Against A |
+|---|---|---|
+| A: every expert sees every calibration token (default) | 0.05613 | |
+| B: A + `-mae 0.1` | 0.05411 | -3.6% [-6.2%, -0.8%], lower on 20/30 rows |
+| C: `calibration_all_experts` off | fails | an expert with no routed token has no Hessian (`KeyError: block.moe.42.down`) |
+| D: every expert active on 10% of rows | 0.05641 | +0.5% [-2.5%, +3.5%] |
+
+The affinity weighting helps a little and consistently (B against D: -4.1% [-7.3%, -0.6%]) for 40 instead of 28
+minutes of conversion; the gain against turboderp's quant on Qwen3.8-Flash-Next (15-17%) mostly comes from other
+differences. One model and one bitrate. The run also found that the PR's `-mae` was required by mistake (conversion
+without it failed); fixed before review. Quants and logs: Drive `sc-quant/ablation-gemma4/`.
