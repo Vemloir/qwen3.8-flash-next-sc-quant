@@ -181,3 +181,61 @@ The affinity weighting helps a little and consistently (B against D: -4.1% [-7.3
 minutes of conversion; the gain against turboderp's quant on Qwen3.8-Flash-Next (15-17%) mostly comes from other
 differences. One model and one bitrate. The run also found that the PR's `-mae` was required by mistake (conversion
 without it failed); fixed before review. Quants and logs: Drive `sc-quant/ablation-gemma4/`.
+
+## 12. Expert Hessians on sigmoid-routed MoEs (PR #529, follow-up)
+
+Asked for in review: small models with sigmoid routing. Same setup as section 11 (current dev plus the PR, 3.0 bpw
+with `-hq`, built-in calibration, only the expert Hessian scheme varying), KL divergence against BF16 on 40 x 2048
+tokens of openwebtext10k with the chat template, 95% paired bootstrap over rows. Two variants were added after the
+first results, through an ablation-only switch: E takes the affinity from the routed top-k weights (zero for experts
+the router does not select) instead of the all-experts distribution, F is E with eps 0.01.
+
+Trinity-Nano-Preview (128 experts, top-8, moe_intermediate_size 256), RTX 5070 Ti:
+
+| Variant | KLD | Against A | Median | Tokens with KL > 5 |
+|---|---|---|---|---|
+| A: every expert sees every token (default) | 0.1333 | | 0.0281 | 360 |
+| B: `-mae 0.1` | 0.0764 | -42.7% [-49.8%, -34.0%] | 0.0256 | 69 |
+| C: `calibration_all_experts` off | 0.0879 | -34.0% [-42.0%, -24.8%] | 0.0281 | 104 |
+| D: every expert active on 10% of rows | 0.0676 | -49.3% [-55.7%, -41.4%] | 0.0265 | 44 |
+| E: routed affinity, eps 0.1 | 0.0803 | -39.8% [-47.4%, -31.0%] | 0.0238 | 109 |
+| F: routed affinity, eps 0.01 | 0.0696 | -47.8% [-55.2%, -38.4%] | 0.0246 | 47 |
+
+LFM2-8B-A1B (32 experts, top-4), RTX PRO 6000 (Colab G4):
+
+| Variant | KLD | Against A |
+|---|---|---|
+| A | 0.0990 | |
+| B | 0.0964 | -2.7% [-4.1%, -1.3%] |
+| D | 0.1003 | +1.2% [-0.5%, +3.1%] |
+| E | 0.0952 | -3.9% [-5.6%, -2.3%] |
+| F | 0.0958 | -3.2% [-4.5%, -1.9%] |
+
+An earlier LFM2 run on the RTX 5070 Ti (its own BF16 reference) gave the same order, with C at +3.7% [+2.0%, +5.5%].
+On Trinity the default is the worst variant, almost entirely through a tail of badly broken tokens, and restricting
+the all-experts pass to 10% of rows (D) removes the tail; on LFM2, as on Gemma 4, D does nothing. With a sigmoid
+router the all-experts weights are flat (scores normalized over all experts), so B trails D on Trinity; routed
+affinity with eps 0.01 (F) is the one variant near the best on both models (Trinity: level with D, +3.0% [-5.1%,
++11.1%]; LFM2: -4.4% [-6.0%, -2.9%] against D, within noise of E). Proposed on the PR as the new default.
+
+Found on the way: with the `dots` router the all-experts weights include the selection bias and can go below zero
+(Trinity's biases reach -0.25), so affinities are clamped at zero (PR commit 65e039cb). LFM2-8B-A1B has no `lm_head`
+tensor and no `tie_word_embeddings` in its config, so exllamav3's `lfm2_moe` fails at the head (patched locally for
+the ablation only).
+
+## 13. turboderp's SC 4.18 against SC2
+
+turboderp's own self-calibrated quant, SC 4.18 bpw h6 ng8 (branch `4.18bpw_h6_ng8`, revision `9796a106`), scored on
+both evaluation traces against the cached BF16 reference (qbench `cached_key`), exllamav3-1.6.1-sc tree, on a Colab
+G4; SC2 was scored on the RTX 5070 Ti with the same tree and reference. Template-written positions left out:
+
+| Trace | SC2 4.05 (120.4 GB) | turboderp SC 4.18 (121.8 GB) | SC2 against SC 4.18 | turboderp plain 4.05 |
+|---|---|---|---|---|
+| Nemotron | 0.00767 | 0.00841 | -8.9% [-17.0%, -0.5%], 28/48 rows | 0.00903 |
+| Multilingual | 0.00543 | 0.00609 | -10.8% [-17.8%, -3.3%], 33/52 rows | 0.00656 |
+
+With template-written positions (plain qbench): Nemotron -7.4% [-15.6%, +1.3%], multilingual -10.8%. SC 4.18 against
+turboderp's plain 4.05: -6.8% [-14.7%, +1.6%] and -7.2% [-16.8%, +3.5%]. Both quants carry an 8-bit n-gram table of
+51.8 GB (different tables; his has the same sha256 in his 3.18 and 4.18 branches), so the difference is in the
+weights: 68.6 GB here, 70.0 GB there. KL vectors: qbench cache keys `acbb1b942744bdb4` (Nemotron) and
+`12b497fb5c941a45` (multilingual).

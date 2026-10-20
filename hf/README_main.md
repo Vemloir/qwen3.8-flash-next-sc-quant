@@ -114,6 +114,23 @@ The affinity-weighted Hessians alone gave 3.6% in an isolated test (see below). 
 (+3.4%) and Italian (+6.0%, one of four rows); both intervals cross zero. Outside Russian there are only 4 rows per language; the per-language numbers are
 indicative.
 
+### Against turboderp's SC quants
+
+turboderp has since published self-calibrated quants of his own. His
+[SC 4.18 bpw](https://huggingface.co/turboderp/Qwen3.8-Flash-Next-exl3/tree/4.18bpw_h6_ng8) (revision `9796a106`),
+on the same traces against the same BF16 reference, template-written positions left out:
+
+| Trace | This quant (120.4 GB) | turboderp SC 4.18 (121.8 GB) | Difference, 95% interval | Rows lower |
+|---|---|---|---|---|
+| NVIDIA Nemotron 3.5 Super post-training conversations | **0.00767** | 0.00841 | **-8.9%** [-17.0%, -0.5%] | 28 / 48 |
+| Multilingual (Russian + 9 languages) | **0.00543** | 0.00609 | **-10.8%** [-17.8%, -3.3%] | 33 / 52 |
+
+Both carry an 8-bit n-gram table of the same size (51.8 GB; the tables themselves differ), so the size difference is
+in the model weights: 68.6 GB here (4.05 bpw, 8-bit head) against 70.0 GB (4.18 bpw, 6-bit head). His SC 4.18 is 7%
+below his plain 4.05 on both traces, with both intervals crossing zero. Counting the template-written positions, as
+plain qbench does, the Nemotron difference is -7.4% [-15.6%, +1.3%]. SC 4.18 was scored on an RTX PRO 6000 (Colab
+G4) and this quant on an RTX 5070 Ti, with the same exllamav3 tree and the same cached reference logits.
+
 ## Versions
 
 | Date | Calibration | Nemotron | Multilingual | Revision |
