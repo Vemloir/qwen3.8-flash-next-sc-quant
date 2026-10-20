@@ -46,10 +46,12 @@ results were measured on them; they are evaluation data, not intended for traini
   and turboderp's 4.05 bpw (same traces, same cached BF16 reference).
 - `per_token_kld.safetensors`: per-token KL divergence on the scored tokens of both independent traces, without the
   positions the chat template writes itself (`<think>\n`, or the empty think block with reasoning off)
-  (`<trace>.sc_4.05` current version, `<trace>.sc_4.05_prev` previous version, `<trace>.turboderp_4.05`), in trace
-  order; the source of the histograms in the model card.
+  (`<trace>.sc_4.05` current version, `<trace>.sc_4.05_prev` previous version, `<trace>.turboderp_4.05`,
+  `<trace>.turboderp_sc_4.18` turboderp's self-calibrated SC 4.18 bpw), in trace order; the source of the histograms
+  in the model card.
 - `kld_by_source.json`: mean KL divergence per source/language, relative difference against turboderp's 4.05
-  (`rel_diff`, `ci95`) and against the previous version (`rel_diff_vs_prev`, `ci95_vs_prev`), 95% paired-bootstrap
+  (`rel_diff`, `ci95`), against the previous version (`rel_diff_vs_prev`, `ci95_vs_prev`) and against turboderp's
+  SC 4.18 (`rel_diff_vs_turboderp_sc_4.18`, `ci95_vs_turboderp_sc_4.18`; scored on a Colab G4), 95% paired-bootstrap
   intervals over rows, without the template-written positions (their count is in `excluded_template_tokens`). Built
   from the qbench cache by `tools/kld_results.py` in the code repository; `--keep_template_tokens` scores every
   position, as plain qbench does.

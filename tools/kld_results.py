@@ -2,13 +2,15 @@
 Results for the model card and the evaluation dataset from the qbench cache: per-source KL divergence of
 this quant and turboderp's 4.05 bpw against BF16 on the Nemotron and multilingual traces, with 95%
 paired-bootstrap intervals over rows (results/kld_by_source.json), and the per-token KL vectors behind
-the histogram (results/per_token_kld.safetensors). Optional --prev adds the previous version of this quant.
+the histogram (results/per_token_kld.safetensors). Optional --prev adds the previous version of this quant,
+--turboderp_sc turboderp's own self-calibrated SC 4.18 bpw.
 
 Scored positions inside the generation prompt that the chat template writes itself (`<think>\n` with reasoning on,
 `<think>\n\n</think>\n\n` with it off) are left out: in real use the model never generates those tokens, while
 the teacher-forced traces score them as part of the assistant turn. --keep_template_tokens keeps them (plain qbench).
 
-Models are named by their qbench cache key (the last hash in kl_<data>_<reference>_<model>_m5.safetensors).
+Models are named by their qbench cache key (the last hash in kl_<data>_<reference>_<model>_m5.safetensors); a model
+scored on the two traces from different source paths has two keys, given comma-separated.
 
     PYTHONPATH=pylibs python tools/kld_results.py --cache eval/_logit_cache/qbench \
         --ours e6391eb51f5e5d42 --turboderp 14faed2bd7b69723 --prev 0ac86f8e46ca3926 -o hf/dataset/results
@@ -50,6 +52,8 @@ def main(args):
     models = {"sc_4.05": args.ours, "turboderp_4.05": args.turboderp}
     if args.prev:
         models["sc_4.05_prev"] = args.prev
+    if args.turboderp_sc:
+        models["turboderp_sc_4.18"] = args.turboderp_sc
     rng = np.random.default_rng(0)
     out, per_token = {}, {}
     for trace, path in TRACES.items():
@@ -57,7 +61,7 @@ def main(args):
         kl, ranges = {}, None
         for name, key in models.items():
             # the data key is the one whose reference logits have as many rows as the trace
-            for f in kl_file(args.cache, key):
+            for f in [f for k in key.split(",") for f in kl_file(args.cache, k)]:
                 data, ref = os.path.basename(f).split("_")[1:3]
                 meta_path = os.path.join(args.cache, f"logits_{data}_{ref}", "meta.json")
                 if not os.path.exists(meta_path):   # reference logits of other traces may have been evicted
@@ -87,7 +91,8 @@ def main(args):
             entry = {"rows": int(len(idx)), "scored_tokens": n_tok}
             for n in models:
                 entry[f"kld_{n}"] = float(row_sum[n][idx].sum() / n_tok)
-            for a, b, tag in [("sc_4.05", "turboderp_4.05", ""), ("sc_4.05", "sc_4.05_prev", "_vs_prev")]:
+            for a, b, tag in [("sc_4.05", "turboderp_4.05", ""), ("sc_4.05", "sc_4.05_prev", "_vs_prev"),
+                              ("sc_4.05", "turboderp_sc_4.18", "_vs_turboderp_sc_4.18")]:
                 if b not in models:
                     continue
                 rel = row_sum[a][bi].sum(1) / row_sum[b][bi].sum(1) - 1
@@ -104,7 +109,10 @@ def main(args):
               f"turboderp {a['kld_turboderp_4.05']:.6f}, {a['rel_diff'] * 100:+.1f}% "
               f"[{a['ci95'][0] * 100:+.1f}, {a['ci95'][1] * 100:+.1f}]"
               + (f", vs previous {a['rel_diff_vs_prev'] * 100:+.1f}% [{a['ci95_vs_prev'][0] * 100:+.1f}, "
-                 f"{a['ci95_vs_prev'][1] * 100:+.1f}]" if args.prev else ""))
+                 f"{a['ci95_vs_prev'][1] * 100:+.1f}]" if args.prev else "")
+              + (f", vs turboderp SC 4.18 {a['rel_diff_vs_turboderp_sc_4.18'] * 100:+.1f}% "
+                 f"[{a['ci95_vs_turboderp_sc_4.18'][0] * 100:+.1f}, {a['ci95_vs_turboderp_sc_4.18'][1] * 100:+.1f}]"
+                 if args.turboderp_sc else ""))
     os.makedirs(args.output, exist_ok = True)
     json.dump(out, open(os.path.join(args.output, "kld_by_source.json"), "w"), indent = 1)
     save_file(per_token, os.path.join(args.output, "per_token_kld.safetensors"))
@@ -117,6 +125,7 @@ if __name__ == "__main__":
     ap.add_argument("--ours", required = True, help = "qbench model key of this quant")
     ap.add_argument("--turboderp", required = True, help = "qbench model key of turboderp's 4.05 bpw")
     ap.add_argument("--prev", help = "qbench model key of the previous version of this quant")
+    ap.add_argument("--turboderp_sc", help = "qbench model key(s) of turboderp's SC 4.18 bpw")
     ap.add_argument("--boot", type = int, default = 20000)
     ap.add_argument("--tokenizer", default = os.path.expanduser("~/lm-inference/models/Qwen3.8-Flash-Next/SC2-EXL3-4.05"))
     ap.add_argument("--keep_template_tokens", action = "store_true", help = "score every position, as plain qbench does")

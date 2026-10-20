@@ -1,8 +1,10 @@
 """
 Charts for the model card from results/kld_by_source.json (written for the evaluation dataset):
 
-  kld_overall.png     mean KL divergence vs BF16, this quant and turboderp's 4.05 bpw, on the two independent traces
-  kld_by_source.png   relative difference per source / language with 95% paired-bootstrap intervals
+  kld_overall.png     mean KL divergence vs BF16, this quant, turboderp's SC 4.18 bpw (when present in the results)
+                      and turboderp's 4.05 bpw, on the two independent traces
+  kld_by_source.png   relative difference per source / language against each of them, with 95% paired-bootstrap
+                      intervals
   kld_hist.png        distribution of per-token KL divergence (from results/per_token_kld.safetensors), log x axis
 
     PYTHONPATH=pylibs python tools/readme_charts.py --results hf/dataset/results/kld_by_source.json \
@@ -10,10 +12,25 @@ Charts for the model card from results/kld_by_source.json (written for the evalu
 """
 import argparse, json, os
 
-# surface, ink, secondary ink, grid, axis, series 1 and 2 (categorical slots of the reference palette, stepped per mode)
-THEMES = {"dark": ("#1a1a19", "#f0efec", "#c3c2b7", "#2f2f2c", "#55544f", "#3987e5", "#d95926"),
-          "light": ("#fcfcfb", "#0b0b0b", "#52514e", "#e1e0d9", "#c3c2b7", "#2a78d6", "#eb6834")}
-SURFACE, INK, INK2, GRID, AXIS, OURS, REF = THEMES["dark"]
+# surface, ink, secondary ink, grid, axis, series 1-3 (categorical slots of the reference palette, stepped per mode)
+THEMES = {"dark": ("#1a1a19", "#f0efec", "#c3c2b7", "#2f2f2c", "#55544f", "#3987e5", "#d95926", "#199e70"),
+          "light": ("#fcfcfb", "#0b0b0b", "#52514e", "#e1e0d9", "#c3c2b7", "#2a78d6", "#eb6834", "#1baf7a")}
+SURFACE, INK, INK2, GRID, AXIS, OURS, REF, REF_SC = THEMES["dark"]
+
+# the quants compared, in plot order: results key suffix, color, label; turboderp's SC 4.18 only when present
+def quants(res):
+    q = [("sc_4.05", OURS, "SC2 4.05 bpw (this quant)")]
+    if "kld_turboderp_sc_4.18" in res["nemotron"]["all"]:
+        q.append(("turboderp_sc_4.18", REF_SC, "turboderp SC 4.18 bpw"))
+    return q + [("turboderp_4.05", REF, "turboderp 4.05 bpw")]
+
+
+# comparisons drawn in kld_by_source.png: tag of the rel_diff / ci95 fields, color of the reference quant, name
+def comparisons(res):
+    c = [("", REF, "turboderp 4.05 bpw")]
+    if "rel_diff_vs_turboderp_sc_4.18" in res["nemotron"]["all"]:
+        c.insert(0, ("_vs_turboderp_sc_4.18", REF_SC, "turboderp SC 4.18 bpw"))
+    return c
 
 NAMES = {
     "nemotron": {"tool_calling": "Agentic tool calling", "knowledge_agent": "Knowledge-base agent",
@@ -35,26 +52,29 @@ def style(ax):
 
 
 def overall(res, out, plt):
-    fig, ax = plt.subplots(figsize = (6.4, 3.0), dpi = 170)
+    q = quants(res)
+    fig, ax = plt.subplots(figsize = (6.4, 3.2), dpi = 170)
     fig.patch.set_facecolor(SURFACE)
     style(ax)
     groups = ["nemotron", "multilingual"]
-    w = 0.34
+    w = 0.78 / len(q)
+    top = max(res[g]["all"][f"kld_{k}"] for g in groups for k, _, _ in q)
     for i, g in enumerate(groups):
         a = res[g]["all"]
-        for j, (v, c, lab) in enumerate(((a["kld_sc_4.05"], OURS, "SC 4.05 bpw (this quant)"),
-                                         (a["kld_turboderp_4.05"], REF, "turboderp 4.05 bpw"))):
-            x = i + (j - 0.5) * (w + 0.03)
+        for j, (k, c, lab) in enumerate(q):
+            v = a[f"kld_{k}"]
+            x = i + (j - (len(q) - 1) / 2) * (w + 0.02)
             ax.bar(x, v, width = w, color = c, label = lab if i == 0 else None, edgecolor = SURFACE, linewidth = 2)
-            ax.text(x, v, f"{v:.5f}", ha = "center", va = "bottom", fontsize = 7.5, color = INK)
-        d = a["rel_diff"] * 100
-        ax.text(i, max(a["kld_sc_4.05"], a["kld_turboderp_4.05"]) * 1.17, f"{d:+.1f}%", ha = "center",
-                fontsize = 9, color = INK, fontweight = "bold")
+            ax.text(x, v, f"{v:.5f}", ha = "center", va = "bottom", fontsize = 7, color = INK)
+        diffs = [f"{a['rel_diff' + tag] * 100:+.1f}% vs {name.replace(' bpw', '')}" for tag, _, name in comparisons(res)]
+        ax.text(i, top * 1.2, "\n".join(diffs), ha = "center", va = "bottom", fontsize = 7.5, color = INK,
+                fontweight = "bold", linespacing = 1.4)
     ax.set_xticks(range(len(groups)), [TITLES[g] for g in groups], fontsize = 8.5, color = INK)
     ax.set_yticks([])
-    ax.set_ylim(0, max(res[g]["all"]["kld_turboderp_4.05"] for g in groups) * 1.32)
-    ax.set_title("Mean KL divergence from BF16 (lower is closer)", fontsize = 10, color = INK, loc = "left")
-    ax.legend(frameon = False, fontsize = 8, labelcolor = INK2, loc = "upper right")
+    ax.set_ylim(0, top * 1.62)
+    ax.set_title("Mean KL divergence from BF16 (lower is closer)", fontsize = 10, color = INK, loc = "left", pad = 22)
+    ax.legend(frameon = False, fontsize = 7.5, labelcolor = INK2, loc = "lower left", bbox_to_anchor = (-0.01, 1.0),
+              ncol = len(q), borderaxespad = 0, handlelength = 1.2, columnspacing = 1.2)
     fig.tight_layout()
     fig.savefig(os.path.join(out, "kld_overall.png"), facecolor = SURFACE)
 
@@ -62,34 +82,43 @@ def overall(res, out, plt):
 def by_source(res, out, plt):
     order = {"nemotron": ["all", "math_proofs", "swe_opencode", "knowledge_agent", "chat", "tool_calling", "multi_turn_if"],
              "multilingual": ["all", "ru", "pt", "ko", "hi", "it", "fr", "zh", "de", "es", "ja"]}
-    fig, axes = plt.subplots(1, 2, figsize = (10.5, 4.6), dpi = 170, gridspec_kw = {"width_ratios": [7, 11]})
+    comps = comparisons(res)
+    h = 0.8 / len(comps)
+    fig, axes = plt.subplots(1, 2, figsize = (10.5, 2.2 + 0.42 * len(comps) * 11 / 2), dpi = 170,
+                             gridspec_kw = {"width_ratios": [7, 11]})
     fig.patch.set_facecolor(SURFACE)
-    lo_all = min(v["ci95"][0] for g in order for k, v in res[g].items()) * 100
-    hi_all = max(v["ci95"][1] for g in order for k, v in res[g].items()) * 100
+    lo_all = min(v["ci95" + t][0] for g in order for v in res[g].values() for t, _, _ in comps) * 100
+    hi_all = max(v["ci95" + t][1] for g in order for v in res[g].values() for t, _, _ in comps) * 100
     for ax, g in zip(axes, order):
         style(ax)
         keys = [k for k in order[g] if k in res[g]]
         ys = list(range(len(keys)))[::-1]
         for y, k in zip(ys, keys):
             v = res[g][k]
-            d, (lo, hi) = v["rel_diff"] * 100, (v["ci95"][0] * 100, v["ci95"][1] * 100)
-            ax.barh(y, d, height = 0.62, color = OURS, alpha = 1.0 if k == "all" else 0.85)
-            ax.plot([lo, hi], [y, y], color = INK2, linewidth = 1.2)
-            ax.text(min(lo, d) - 1.2, y, f"{d:+.1f}%", ha = "right", va = "center", fontsize = 7.5, color = INK,
-                    fontweight = "bold" if k == "all" else "normal")
+            for j, (tag, c, name) in enumerate(comps):
+                yy = y + ((len(comps) - 1) / 2 - j) * h
+                d, (lo, hi) = v["rel_diff" + tag] * 100, (v["ci95" + tag][0] * 100, v["ci95" + tag][1] * 100)
+                ax.barh(yy, d, height = h * 0.88, color = c, label = f"against {name}" if (y, ax) == (ys[0], axes[0]) else None)
+                ax.plot([lo, hi], [yy, yy], color = INK2, linewidth = 1)
+                # value label beside the interval, on the side away from zero when the whole interval is above it
+                lx, ha = (hi + 1.2, "left") if lo > 0 else (min(lo, d) - 1.2, "right")
+                ax.text(lx, yy, f"{d:+.1f}%", ha = ha, va = "center", fontsize = 6.5, color = INK,
+                        fontweight = "bold" if k == "all" else "normal")
         ax.axvline(0, color = AXIS, linewidth = 1)
         ax.set_yticks(ys, [NAMES[g][k] for k in keys], fontsize = 8, color = INK)
         for t, k in zip(ax.get_yticklabels(), keys):
             if k == "all":
                 t.set_fontweight("bold")
-        ax.set_xlim(lo_all - 13, max(hi_all, 0) + 3)   # room for the value label left of the widest interval
+        ax.set_xlim(lo_all - 14, max(hi_all, 0) + 3)   # room for the value label left of the widest interval
         ax.xaxis.grid(True, color = GRID, linewidth = 0.6)
         ax.set_axisbelow(True)
-        ax.set_xlabel("KL divergence vs turboderp 4.05 bpw (%)", fontsize = 8, color = INK2)
+        ax.set_xlabel("KL divergence of this quant against each reference (%)", fontsize = 8, color = INK2)
         ax.set_title(TITLES[g], fontsize = 9.5, color = INK, loc = "left")
     fig.suptitle("How much closer to BF16, by source  ·  bars: mean, lines: 95% interval  ·  left of 0 = better",
                  fontsize = 10, color = INK, x = 0.01, ha = "left")
-    fig.tight_layout()
+    fig.tight_layout(rect = (0, 0, 1, 0.94))
+    fig.legend(frameon = False, fontsize = 8, labelcolor = INK2, loc = "upper left", bbox_to_anchor = (0.005, 0.965),
+               ncol = len(comps), handlelength = 1.2)
     fig.savefig(os.path.join(out, "kld_by_source.png"), facecolor = SURFACE)
 
 
@@ -104,7 +133,7 @@ def hist(per_token, res, out, plt):
     groups = ["nemotron", "multilingual"]
     fig, axes = plt.subplots(1, 2, figsize = (10.5, 4.0), dpi = 170, sharey = False)
     fig.patch.set_facecolor(SURFACE)
-    series = (("sc_4.05", OURS, "SC 4.05 bpw (this quant)"), ("turboderp_4.05", REF, "turboderp 4.05 bpw"))
+    series = [(k, c, lab) for k, c, lab in quants(res) if f"nemotron.{k}" in kl]
     for ax, g in zip(axes, groups):
         style(ax)
         ax.spines["left"].set_visible(False)
@@ -118,22 +147,21 @@ def hist(per_token, res, out, plt):
             h, _ = np.histogram(data[k], bins = edges)
             h = np.convolve(h, np.ones(3) / 3, mode = "same")
             top = max(top, h.max())
-            ax.plot(mid, h, color = c, linewidth = 2, label = lab, solid_capstyle = "round")
-        for i, (k, c, _) in enumerate(series):
             med = np.median(data[k])
+            ax.plot(mid, h, color = c, linewidth = 2, solid_capstyle = "round",
+                    label = f"{lab}, median {med:.2e}".replace("e-0", "e-"))
             ax.axvline(med, color = c, linewidth = 1, linestyle = (0, (3, 3)))
-            ax.text(med * (0.85 if i == 0 else 1.18), top * 1.06, f"median {med:.2e}".replace("e-0", "e-"),
-                    ha = "right" if i == 0 else "left", fontsize = 7, color = INK2)
         ax.set_xscale("log")
         ax.set_xlim(lo, hi)
-        ax.set_ylim(0, top * 1.14)
+        ax.set_ylim(0, top * 1.3)
         ax.set_yticks([])
         ax.xaxis.grid(True, color = GRID, linewidth = 0.6)
         ax.set_axisbelow(True)
         ax.set_xlabel("per-token KL divergence from BF16 (log scale)", fontsize = 8, color = INK2)
         a = res[g]["all"]
         ax.set_title(f"{TITLES[g]}  ·  {a['scored_tokens']:,} tokens", fontsize = 9.5, color = INK, loc = "left")
-    axes[0].legend(frameon = False, fontsize = 8, labelcolor = INK2, loc = "upper left")
+    for ax in axes:
+        ax.legend(frameon = False, fontsize = 7, labelcolor = INK2, loc = "upper left")
     fig.suptitle("Distribution of per-token error  ·  further left = closer to BF16  ·  dashed: medians",
                  fontsize = 10, color = INK, x = 0.01, ha = "left")
     fig.tight_layout()
@@ -141,8 +169,8 @@ def hist(per_token, res, out, plt):
 
 
 def main(args):
-    global SURFACE, INK, INK2, GRID, AXIS, OURS, REF
-    SURFACE, INK, INK2, GRID, AXIS, OURS, REF = THEMES[args.theme]
+    global SURFACE, INK, INK2, GRID, AXIS, OURS, REF, REF_SC
+    SURFACE, INK, INK2, GRID, AXIS, OURS, REF, REF_SC = THEMES[args.theme]
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt

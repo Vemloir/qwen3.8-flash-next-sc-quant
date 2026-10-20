@@ -56,7 +56,7 @@ Positions the chat template writes itself (`<think>\n`, or `<think>\n\n</think>\
 23k scored tokens on the Nemotron trace, 32 of 26k on the multilingual one) are left out for all quants: the model
 never generates them in real use, while a teacher-forced trace scores them as part of the answer.
 
-![Mean KL divergence from BF16, this quant against turboderp's 4.05 bpw, on two traces](assets/kld_overall.png)
+![Mean KL divergence from BF16, this quant against turboderp's SC 4.18 and 4.05 bpw, on two traces](assets/kld_overall.png)
 
 | Trace | Rows | Scored tokens | This quant | turboderp 4.05 | Difference, 95% interval | Rows lower |
 |---|---|---|---|---|---|---|
@@ -67,14 +67,14 @@ Intervals come from a paired bootstrap over rows. Perplexity (as qbench reports 
 unchanged within noise: 1.9275 against 1.9316 on the
 Nemotron trace (BF16 1.9285), 2.3385 against 2.3443 on the multilingual one (BF16 2.3420).
 
-![Distribution of per-token KL divergence for both quants on both traces](assets/kld_hist.png)
+![Distribution of per-token KL divergence for the three quants on both traces](assets/kld_hist.png)
 
 The same comparison token by token: the bulk of the distribution is shifted slightly left and the tail of large
 errors (right of 1e-2) is thinner. Medians: 8.5e-4 against 1.10e-3 (Nemotron), 9.9e-4 against 1.17e-3
-(multilingual). Unlike turboderp's histograms, there is no noise-floor curve: it needs a separate BF16 run with
+(multilingual); turboderp's SC 4.18 (see below) sits in between, 9.0e-4 and 1.04e-3. Unlike turboderp's histograms, there is no noise-floor curve: it needs a separate BF16 run with
 injected noise.
 
-![Relative difference in KL divergence per source and per language, with 95% intervals](assets/kld_by_source.png)
+![Relative difference in KL divergence per source and per language against turboderp's SC 4.18 and 4.05 bpw, with 95% intervals](assets/kld_by_source.png)
 
 <details>
 <summary>Per source and per language, as a table</summary>
@@ -123,13 +123,16 @@ on the same traces against the same BF16 reference, template-written positions l
 | Trace | This quant (120.4 GB) | turboderp SC 4.18 (121.8 GB) | Difference, 95% interval | Rows lower |
 |---|---|---|---|---|
 | NVIDIA Nemotron 3.5 Super post-training conversations | **0.00767** | 0.00841 | **-8.9%** [-17.0%, -0.5%] | 28 / 48 |
-| Multilingual (Russian + 9 languages) | **0.00543** | 0.00609 | **-10.8%** [-17.8%, -3.3%] | 33 / 52 |
+| Multilingual (Russian + 9 languages) | **0.00543** | 0.00609 | **-10.8%** [-17.8%, -3.5%] | 33 / 52 |
 
 Both carry an 8-bit n-gram table of the same size (51.8 GB; the tables themselves differ), so the size difference is
 in the model weights: 68.6 GB here (4.05 bpw, 8-bit head) against 70.0 GB (4.18 bpw, 6-bit head). His SC 4.18 is 7%
 below his plain 4.05 on both traces, with both intervals crossing zero. Counting the template-written positions, as
-plain qbench does, the Nemotron difference is -7.4% [-15.6%, +1.3%]. SC 4.18 was scored on an RTX PRO 6000 (Colab
-G4) and this quant on an RTX 5070 Ti, with the same exllamav3 tree and the same cached reference logits.
+plain qbench does, the Nemotron difference is -7.4% [-15.6%, +1.3%]. Per source and language (the green bars in the
+chart above) the gap is largest on Russian (-20.2%) and French (-24.2%); this quant is worse than SC 4.18 on Korean
+(+13.7% [+5.8%, +27.8%], 4 rows) and, with intervals crossing zero, on Spanish, Chinese, Hindi and multi-turn
+instruction following. SC 4.18 was scored on an RTX PRO 6000 (Colab G4) and this quant on an RTX 5070 Ti, with the
+same exllamav3 tree and the same cached reference logits.
 
 ## Versions
 

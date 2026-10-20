@@ -232,10 +232,11 @@ G4; SC2 was scored on the RTX 5070 Ti with the same tree and reference. Template
 | Trace | SC2 4.05 (120.4 GB) | turboderp SC 4.18 (121.8 GB) | SC2 against SC 4.18 | turboderp plain 4.05 |
 |---|---|---|---|---|
 | Nemotron | 0.00767 | 0.00841 | -8.9% [-17.0%, -0.5%], 28/48 rows | 0.00903 |
-| Multilingual | 0.00543 | 0.00609 | -10.8% [-17.8%, -3.3%], 33/52 rows | 0.00656 |
+| Multilingual | 0.00543 | 0.00609 | -10.8% [-17.8%, -3.5%], 33/52 rows | 0.00656 |
 
 With template-written positions (plain qbench): Nemotron -7.4% [-15.6%, +1.3%], multilingual -10.8%. SC 4.18 against
 turboderp's plain 4.05: -6.8% [-14.7%, +1.6%] and -7.2% [-16.8%, +3.5%]. Both quants carry an 8-bit n-gram table of
 51.8 GB (different tables; his has the same sha256 in his 3.18 and 4.18 branches), so the difference is in the
-weights: 68.6 GB here, 70.0 GB there. KL vectors: qbench cache keys `acbb1b942744bdb4` (Nemotron) and
-`12b497fb5c941a45` (multilingual).
+weights: 68.6 GB here, 70.0 GB there. Against SC 4.18, SC2 is worse on Korean (+13.7% [+5.8%, +27.8%], 4 rows).
+KL vectors: qbench cache keys `acbb1b942744bdb4` (Nemotron) and `12b497fb5c941a45` (multilingual), passed to
+`tools/kld_results.py` as `--turboderp_sc acbb1b942744bdb4,12b497fb5c941a45`; the model card charts include it.

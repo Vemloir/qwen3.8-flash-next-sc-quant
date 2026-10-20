@@ -77,7 +77,7 @@ Against turboderp's own self-calibrated
 [SC 4.18 bpw](https://huggingface.co/turboderp/Qwen3.8-Flash-Next-exl3/tree/4.18bpw_h6_ng8) (121.8 GB against 120.4
 GB here; same 8-bit n-gram table size, so the difference is 70.0 against 68.6 GB of model weights), same traces and
 reference: Nemotron 0.00841, this quant **-8.9% [-17.0%, -0.5%]** (lower on 28/48 rows); multilingual 0.00609, this
-quant **-10.8% [-17.8%, -3.3%]** (33/52). Details on the model card.
+quant **-10.8% [-17.8%, -3.5%]** (33/52). Details on the model card.
 
 Per language, the per-source chart and the previous version: see the [model card](https://huggingface.co/Vemloir/Qwen3.8-Flash-Next-sc-exl3).
 
